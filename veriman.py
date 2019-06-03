@@ -157,12 +157,10 @@ class VeriMan:
 
         for function_name in trace:
             if function_name == '':
-                transaction_value = manticore.make_symbolic_value()
-                manticore.constrain(transaction_value > 0)
                 manticore.transaction(caller=manticore.make_symbolic_address(),
                                       address=contract_account,
-                                      value=transaction_value,
-                                      data=manticore.make_symbolic_buffer(0))
+                                      value=manticore.make_symbolic_value(),
+                                      data=manticore.make_symbolic_buffer(320))
             else:
                 function_to_call = getattr(contract_account, function_name)
                 types = function_types[function_name]
