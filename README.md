@@ -9,4 +9,5 @@
 
 * [`VeriSol`](https://github.com/microsoft/verisol)
 * [`Manticore`](https://github.com/trailofbits/manticore)
+* [`Slither`](https://github.com/crytic/slither)
 * [`sol-merger`](https://github.com/RyuuGan/sol-merger)

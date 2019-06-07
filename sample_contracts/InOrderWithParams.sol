@@ -26,8 +26,6 @@ contract InOrderWithParams {
 
         c_called = true;
 
-        if(pc == 40 || pc == 43) {
-            assert(false);
-        }
+        assert(pc != 40 && pc != 43);
     }
 }

@@ -5,11 +5,13 @@ bins = {
 }
 
 contract = {
-	'name': 'InOrdenParams',  # If '' then the file name will be used
-	'path': '/home/user/contracts/InOrderParams.sol',
+	'name': '',  # If '' then the file name will be used
+	'path': '/home/user/contracts/InOrderHard.sol',
 	'args': (),
-	'line_number': 25,
-	'line_condition': 'pc != 40'  # Added only if line_number > 0
+	'condition': 'num_calls > 1',  # Solidity, added only if condition_line > 0 or fully_verify_condition
+	'state': 'b_called',  # Solidity, optional
+	'fully_verify_condition': True,
+	'condition_line': 0
 }
 
 bounds = {

@@ -1,10 +1,6 @@
 pragma solidity ^0.4.19;
 
 contract PaymentSplitter {
-    event PayeeAdded(address account, uint256 shares);
-    event PaymentReleased(address to, uint256 amount);
-    event PaymentReceived(address from, uint256 amount);
-
     uint256 private _totalShares;
     uint256 private _totalReleased;
 
@@ -69,6 +65,5 @@ contract PaymentSplitter {
         _payees.push(account);
         _shares[account] = shares_;
         _totalShares = _totalShares + shares_;
-        emit PayeeAdded(account, shares_);
     }
 }

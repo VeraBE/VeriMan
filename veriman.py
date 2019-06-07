@@ -9,6 +9,7 @@ from manticore.ethereum import ManticoreEVM, DetectInvalid, ABI
 from manticore.utils import config as manticoreConfig
 from manticore.ethereum.plugins import LoopDepthLimiter, FilterFunctions, VerboseTraceStdout
 from shutil import copyfile
+from slither.slither import Slither
 
 
 class VeriMan:
@@ -20,8 +21,13 @@ class VeriMan:
 
         self.contract_path = config.contract['path']
         self.contract_args = config.contract['args']
-        self.contract_line_number = config.contract['line_number']
-        self.contract_line_condition = config.contract['line_condition']
+        self.contract_condition = config.contract['condition']
+        self.fully_verify_condition = config.contract['fully_verify_condition']
+        self.condition_line = config.contract['condition_line']
+
+        self.condition_state = config.contract['state']
+        if len(self.condition_state) == 0:
+            self.condition_state = 'true'
 
         self.contract_name = config.contract['name']
         if len(self.contract_name) == 0:
@@ -39,8 +45,11 @@ class VeriMan:
 
         self.files_to_cleanup = []
 
+
     def analyze_contract(self):
-        print('[!] Parameters must be set on config file')
+        print('[-] Analyzing', self.contract_name)
+        if self.fully_verify_condition or self.condition_line > 0:
+            print('[-] Will check if', self.contract_condition, 'when ' + self.condition_state if self.condition_state != 'true' else '')
 
         self.pre_process_contract()
 
@@ -102,6 +111,10 @@ class VeriMan:
 
 
     def execute_trace(self, trace):
+        if len(trace) == 0:
+            print('[!] No trace to execute has been found')
+            return
+
         print('[.] Executing trace')
 
         consts = manticoreConfig.get_group('core')
@@ -144,11 +157,11 @@ class VeriMan:
         if contract_account is None:
             raise Exception('Contract account is None, check contract arguments')
 
-        print('[...] Executing trace')
+        print('[...] Calling functions in trace')
 
-        function_signatures = manticore.get_metadata(contract_account).function_signatures
         function_types = {}
 
+        function_signatures = manticore.get_metadata(contract_account).function_signatures
         for signature in function_signatures:
             signature_parts = signature.split('(')
             name = str(signature_parts[0])
@@ -183,13 +196,87 @@ class VeriMan:
         copyfile(self.contract_path, modified_contract_path)
         self.files_to_cleanup.append(modified_contract_path)
 
-        if self.contract_line_number > 0:
-            os.system("sed -i '" + str(self.contract_line_number) + 'iassert(' + self.contract_line_condition + ");' " + modified_contract_path)
+        code_to_add = 'assert(' + self.contract_condition + ');'
+
+        if self.condition_state != '':
+            code_to_add = 'if (' + self.condition_state + ') ' + code_to_add
+
+        if self.condition_line > 0:
+            os.system("sed -i '" + str(self.condition_line) + 'i' + code_to_add + "' " + modified_contract_path)
 
         # Solidity and VeriSol don't support imports:
         os.system('sol-merger ' + modified_contract_path)
         self.contract_path = modified_contract_path.replace('.sol', '_merged.sol')
         self.files_to_cleanup.append(self.contract_path)
+
+        if self.fully_verify_condition:
+            slither = Slither(self.contract_path, solc=self.solc_path)
+            main_contract = slither.get_contract_from_name(self.contract_name)
+            variables_in_condition = self.get_variables_in_condition(self.contract_condition)
+            related_functions = set()
+            for variable_string in variables_in_condition:
+                variable = main_contract.get_state_variable_from_name(variable_string)
+                if variable != None:  # TODO improve
+                    functions_writing_variable = main_contract.get_functions_writing_to_variable(variable)
+                    related_functions = related_functions.union(self.get_public_callers(functions_writing_variable))
+
+            self.append_to_every_function_end(related_functions, code_to_add)
+
+
+    def get_public_callers(self, functions):
+        # TODO function should be improved, this is a prototype
+
+        result = set()
+
+        for func in functions:
+            if func.visibility == 'public':
+                result.add(func.name)
+            else:
+                result = result.union(self.get_public_callers(func.reachable_from_functions))
+
+        return result
+
+
+    def append_to_every_function_end(self, function_names, code):
+        # TODO function should be improved, this is a prototype
+        # TODO "missing" constructor needs to be considered
+
+        with open(self.contract_path) as contract_file:
+            contract = contract_file.read()
+
+        contract = contract.replace('}', '\n}')
+
+        contract_lines = contract.split('\n')
+
+        in_function = False
+        open_blocks = 0
+        for index, line in enumerate(contract_lines):
+            if "function " in line:
+                found = False
+                for function_name in function_names:
+                    if "function " + function_name in line:
+                        found = True
+                        break
+                in_function = found
+
+            if in_function:
+                if "return " in line:
+                    contract_lines[index] = line.replace('return ', code + '\nreturn ')
+
+                open_blocks = open_blocks + line.count("{") - line.count("}")
+                if open_blocks == 0:
+                    contract_lines[index] = line.replace('}', code + '\n}')
+
+        contract = '\n'.join(contract_lines)
+
+        with open(self.contract_path, 'w') as contract_file:
+            contract_file.write(contract)
+
+
+    def get_variables_in_condition(self, condition):
+        # TODO function should be improved, this is a prototype
+
+        return re.findall('\w+', condition)
 
 
     def cleanup(self):
@@ -210,10 +297,8 @@ class VeriMan:
 
 
     def get_contract_code(self, contract_path):
-        code = ''
         with open(contract_path, 'r') as contract_file:
-            code = contract_file.read()
-        return code
+            return contract_file.read()
 
 
     def show_results(self, manticore):
@@ -239,5 +324,5 @@ class VeriMan:
 
 
 if __name__ == '__main__':
-    analyzer = VeriMan()
-    analyzer.analyze_contract()
+    veriman = VeriMan()
+    veriman.analyze_contract()
