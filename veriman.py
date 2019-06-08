@@ -42,6 +42,7 @@ class VeriMan:
 
         self.report_invalid = config.output['report_invalid']
         self.verbose = config.output['verbose']
+        self.does_cleanup = config.output['cleanup']
 
         self.files_to_cleanup = []
 
@@ -65,7 +66,8 @@ class VeriMan:
             print('[!] Unexpected exception:', info[1])
             traceback.print_tb(info[2])
 
-        self.cleanup()
+        if self.does_cleanup:
+            self.cleanup()
 
 
     def calculate_trace(self):
@@ -307,7 +309,7 @@ class VeriMan:
             if str(state.context['last_exception']) == 'THROW':
                 throw_states.append(state)
 
-        message = 'that negates the given condition has been found:'
+        message = 'that negates the given condition or a preexisting has been found:'
         print(('[!] No path ' if len(throw_states) == 0 else '[!] A path ') + message)
 
         state_num = 0

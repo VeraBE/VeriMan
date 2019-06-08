@@ -54,7 +54,7 @@ contract PaymentSplitter {
 
         assert(false);
 
-        // account.transfer(payment); Solidity doesn't support transfers yet
+        // account.transfer(payment); VeriSol doesn't support transfers yet
     }
 
     function _addPayee(address account, uint256 shares_) private {

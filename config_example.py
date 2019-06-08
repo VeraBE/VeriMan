@@ -25,5 +25,6 @@ bounds = {
 
 output = {
 	'report_invalid': False,
-	'verbose': False
+	'verbose': False,
+	'cleanup': True
 }
