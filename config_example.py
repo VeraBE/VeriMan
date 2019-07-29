@@ -6,7 +6,7 @@ bins = {
 
 contract = {
 	'name': '',  # If '' then the file name will be used
-	'path': '/home/user/contracts/InOrderHard.sol',
+	'path': '/home/user/contracts/InOrderHard.sol', # For now it only supports contracts that work both on 0.5 and 0.4, because VeriSol needs 0.5 and Manticore 0.4
 	'args': (),
 	'condition': 'num_calls > 1',  # Solidity, added only if condition_line > 0 or fully_verify_condition
 	'state': 'b_called',  # Solidity, optional
@@ -20,7 +20,9 @@ bounds = {
 	'procs': 3,  # Some errors didn't show up when using multiple procs
 	'user_initial_balance': 100,
 	'avoid_constant_txs': False,  # Avoid all TXs that have no effect on the storage
-	'loop_delimiter': False
+	'loop_delimiter': False,
+	'user_accounts': 2,
+	'fallback_data_size': 320
 }
 
 output = {

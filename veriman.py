@@ -5,7 +5,7 @@ import re
 import time
 import config
 from datetime import datetime
-from manticore.ethereum import ManticoreEVM, DetectInvalid, ABI
+from manticore.ethereum import ManticoreEVM, DetectInvalid
 from manticore.utils import config as manticoreConfig
 from manticore.ethereum.plugins import LoopDepthLimiter, FilterFunctions, VerboseTraceStdout
 from shutil import copyfile
@@ -39,6 +39,10 @@ class VeriMan:
         self.user_initial_balance = config.bounds['user_initial_balance']
         self.avoid_constant_txs = config.bounds['avoid_constant_txs']
         self.force_loop_limit = config.bounds['loop_delimiter']
+        self.amount_user_accounts = config.bounds['user_accounts']
+        if self.amount_user_accounts < 1:
+            raise Exception('At least one user account has to be created')
+        self.fallback_data_size = config.bounds['fallback_data_size']
 
         self.report_invalid = config.output['report_invalid']
         self.verbose = config.output['verbose']
@@ -142,14 +146,19 @@ class VeriMan:
             invalid_detector = DetectInvalid()
             manticore.register_detector(invalid_detector)
 
-        print('[...] Creating a user account')
-        user_account = manticore.create_account(balance=self.user_initial_balance)
+        print('[...] Creating user accounts')
+        for num in range(0, self.amount_user_accounts):
+            account_name = 'user_account_' + str(num)
+            manticore.create_account(balance=self.user_initial_balance, name=account_name)
+
+        # FIXME temporal to remove pragma, because VeriSol needs 0.5 and Manticore 0.4:
+        os.system("sed -i '1d' " + self.contract_path)
 
         print('[...] Creating a contract and its library dependencies')
         source_code = self.get_contract_code(self.contract_path)
         try:
             contract_account = manticore.solidity_create_contract(source_code,
-                                                                  owner=user_account,
+                                                                  owner=manticore.get_account('user_account_0'),
                                                                   args=self.contract_args,
                                                                   contract_name=self.contract_name,
                                                                   solc_bin=self.solc_path)
@@ -175,7 +184,7 @@ class VeriMan:
                 manticore.transaction(caller=manticore.make_symbolic_address(),
                                       address=contract_account,
                                       value=manticore.make_symbolic_value(),
-                                      data=manticore.make_symbolic_buffer(320))
+                                      data=manticore.make_symbolic_buffer(self.fallback_data_size))
             else:
                 function_to_call = getattr(contract_account, function_name)
                 types = function_types[function_name]
@@ -184,12 +193,8 @@ class VeriMan:
                 else:
                     function_to_call()
 
-        self.show_results(manticore)
-
-        print('[...] Finalizing')
-        manticore.finalize(procs=self.procs)
-
-        print('[-] Look for full Manticore results in', manticore.workspace)
+        print('[...] Processing output')
+        self.output_results(manticore)
 
 
     def pre_process_contract(self):
@@ -207,6 +212,7 @@ class VeriMan:
             os.system("sed -i '" + str(self.condition_line) + 'i' + code_to_add + "' " + modified_contract_path)
 
         # Solidity and VeriSol don't support imports:
+        os.system("sed -i '1ipragma solidity ^0.5.10;' " + modified_contract_path) # FIXME, temporal for sol-merger
         os.system('sol-merger ' + modified_contract_path)
         self.contract_path = modified_contract_path.replace('.sol', '_merged.sol')
         self.files_to_cleanup.append(self.contract_path)
@@ -303,26 +309,19 @@ class VeriMan:
             return contract_file.read()
 
 
-    def show_results(self, manticore):
+    def output_results(self, manticore):
         throw_states = []
         for state in manticore.terminated_states:
             if str(state.context['last_exception']) == 'THROW':
                 throw_states.append(state)
 
-        message = 'that negates the given condition or a preexisting has been found:'
+        message = 'that negates the given condition or a preexisting has been found.'
         print(('[!] No path ' if len(throw_states) == 0 else '[!] A path ') + message)
 
-        state_num = 0
         for state in throw_states:
-            print('[---] Path No. ' + str(state_num) + ':\n')
-            blockchain = state.platform
-            for sym_tx in blockchain.human_transactions:
-                sys.stdout.write('Transactions No. %d\n' % blockchain.transactions.index(sym_tx))
-                conc_tx = sym_tx.concretize(state)
-                is_something_symbolic = sym_tx.dump(sys.stdout, state, manticore, conc_tx=conc_tx)
-                if is_something_symbolic:
-                    print('At least one value is symbolic and may take other values')
-            state_num = state_num + 1
+            manticore.generate_testcase(state)
+
+        print('[-] Look for full output in: ' + manticore.workspace)
 
 
 if __name__ == '__main__':

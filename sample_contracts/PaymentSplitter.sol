@@ -1,5 +1,3 @@
-pragma solidity ^0.4.19;
-
 contract PaymentSplitter {
     uint256 private _totalShares;
     uint256 private _totalReleased;
