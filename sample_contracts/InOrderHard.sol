@@ -9,15 +9,18 @@ contract InOrderHard {
         num_calls++;
     }
 
-    function b() public {
+    function b() public returns(int) {
         require(a_called);
         
         if(b_called) {
            num_calls = 0;
+           return 10;
         }
 
         b_called = true;
         num_calls++;
+
+        return 20;
     }
 
     function c() public {

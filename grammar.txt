@@ -17,7 +17,7 @@
                 | op:'once' '(' ~ value:expression ')'
                 | op:'always' '(' ~ value:expression ')'
                 | op:'since' '(' ~ left:term ',' right:expression ')'
-                | op:'!' ~ value:term
+                | op:'!' value:term
                 | integerComparison
                 | factor
                 ;
@@ -34,7 +34,7 @@
                 | integerExpression '>' integerExpression
                 | integerExpression '<=' ~ integerExpression
                 | integerExpression '>=' ~ integerExpression
-                | integerExpression '!=' integerExpression
+                | integerExpression '!=' ~ integerExpression
                 | integerExpression '==' integerExpression
                 ;
 

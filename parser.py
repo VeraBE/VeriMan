@@ -7,18 +7,19 @@ from iteration_utilities import deepflatten
 
 TRUE = 'true'
 FALSE = 'false'
-AND = "&&"
-OR = "||"
-EQUAL = "=="
-NOTEQUAL = "!="
-NOT = "!"
-SINCE = "since"
-PREVIOUSLY = "previously"
-ONCE = "once"
-ALWAYS = "always"
+AND = '&&'
+OR = '||'
+EQUAL = '=='
+NOTEQUAL = '!='
+NOT = '!'
+SINCE = 'since'
+PREVIOUSLY = 'previously'
+ONCE = 'once'
+ALWAYS = 'always'
+
+GRAMMAR_FILE = 'grammar.txt'
 
 VARIABLE_NAME_LENGTH = 8
-GRAMMAR_FILE = 'grammar.txt'
 
 
 class Parser:
@@ -35,6 +36,12 @@ class Parser:
             predicate = Term(predicate)
 
         return predicate
+
+
+    @staticmethod
+    def create_variable_name(base):
+        return 'VeriMan_' + base + '_' + ''.join(
+            random.choice(string.ascii_lowercase) for _ in range(VARIABLE_NAME_LENGTH))
 
 
 class Semantics(object):
@@ -67,7 +74,6 @@ class Predicate:
 
     def __init__(self, operator, values):
         self.operator = operator
-
         self.values = []
         self.related_vars = []
 
@@ -78,38 +84,25 @@ class Predicate:
                 term = Term(value)
 
             self.related_vars += term.related_vars
-
             self.values.append(term)
 
         self.related_vars = list(set(self.related_vars))
 
-        # TODO refactor:
         if operator == PREVIOUSLY:
-            new_var = Predicate.create_variable_name('prev')
+            new_var = Parser.create_variable_name('prev')
             self.solidity_repr = new_var
             self.solidity_vars = [new_var]
-            self.initialization_code = f'bool {new_var} = {self.values[0].solidity_repr};'
         elif operator == SINCE:
-            # TODO improve:
-            q_happened = Predicate.create_variable_name('q_happened')
-            p_happened_until_q = Predicate.create_variable_name('p_happened_until_q')
+            q_happened = Parser.create_variable_name('q_happened')
+            p_happened_until_q = Parser.create_variable_name('p_happened_until_q')
             self.solidity_repr = f'({q_happened} {AND} {p_happened_until_q})'
             self.solidity_vars = [q_happened, p_happened_until_q]
-            self.initialization_code = f'bool {q_happened} = false;\nbool {p_happened_until_q} = true;'
-            self.update_code = 'bool ' + q_happened + '_old = ' + q_happened + ';\nbool ' + p_happened_until_q + '_old = ' + p_happened_until_q + ';\n'
-            self.update_code += q_happened + ' = ' + q_happened + '_old || (' + p_happened_until_q + '_old && ' + self.values[1].solidity_repr + ');\n'
-            self.update_code += p_happened_until_q + ' = ' + q_happened + '_old || (' + p_happened_until_q + '_old && ' + self.values[0].solidity_repr + ');\n'
         else:
             self.solidity_vars = []
             if self.operator in [AND, OR, EQUAL, NOTEQUAL]:
                 self.solidity_repr = self.values[0].solidity_repr + " " + self.operator + " " + self.values[1].solidity_repr
             elif self.operator == NOT:
                 self.solidity_repr = '!' + self.values[0].solidity_repr
-
-
-    @staticmethod
-    def create_variable_name(base):
-        return 'VeriMan_' + base + '_' + ''.join(random.choice(string.ascii_lowercase) for _ in range(VARIABLE_NAME_LENGTH))
 
 
 class Term(Predicate):
@@ -124,7 +117,7 @@ class Term(Predicate):
         else:
             raise Exception('Unexpected term')
 
-        self.solidity_repr = '(' + self.solidity_repr + ')'
+        self.solidity_repr = '(' + self.solidity_repr.rstrip().lstrip() + ')'
 
         vars = re.findall('[a-zA-Z0-9_.]*?[a-zA-Z][a-zA-Z0-9_.]*', self.solidity_repr)
         # TODO improve:

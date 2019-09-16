@@ -65,7 +65,8 @@ class VeriMan:
         except:
             info = sys.exc_info()
             print('[!] Unexpected exception:\n', info[1])
-            traceback.print_tb(info[2])
+            if self.verbose:
+                traceback.print_tb(info[2])
 
         if self.does_cleanup:
             self.cleanup()
@@ -159,9 +160,6 @@ class VeriMan:
                                                                   args=self.contract_args,
                                                                   contract_name=self.contract_name)
         except:
-            info = sys.exc_info()
-            print('[!] Unexpected exception:\n', info[1])
-            traceback.print_tb(info[2])
             raise Exception('Check contract arguments')
 
         if contract_account is None:

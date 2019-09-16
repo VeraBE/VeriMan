@@ -1,5 +1,6 @@
 from slither.slither import Slither
 from parser import Parser
+import parser
 
 
 class Instrumentator:
@@ -8,11 +9,15 @@ class Instrumentator:
         self.contract_path = ''
         self.contract_name = ''
         self.contract_lines = []
+        self.contract_info = None
 
 
     def instrument(self, contract_path, contract_name, predicates):
         self.contract_path = contract_path
         self.contract_name = contract_name
+
+        slither = Slither(self.contract_path)
+        self.contract_info = slither.get_contract_from_name(self.contract_name)
 
         with open(self.contract_path) as contract_file:
             contract = contract_file.read()
@@ -21,10 +26,11 @@ class Instrumentator:
 
         parser = Parser()
 
+        # TODO consider repeated terms inside predicates:
         for predicate_string in predicates:
             predicate = parser.parse(predicate_string)
 
-            # TODO "missing" constructor needs to be considered
+            # FIXME "missing" constructor needs to be considered, fix when Solidity version is fixed
 
             self.instrument_new_variables(predicate)
 
@@ -38,12 +44,26 @@ class Instrumentator:
     def instrument_new_variables(self, predicate):
         if len(predicate.solidity_vars) > 0:
             related_functions = self.get_related_functions(predicate)
-            if predicate.operator == "previously":
-                # FIXME related
-                self.insert_in_functions(related_functions, predicate.initialization_code, self.insert_at_beginning_of_functions)
-            elif predicate.operator == "since":
-                self.insert_contract_variables(predicate.initialization_code)
-                self.insert_in_functions(related_functions, predicate.update_code, self.insert_at_end_of_functions)
+
+            if predicate.operator == parser.PREVIOUSLY:
+                initialization_code = f'bool {predicate.solidity_vars[0]} = {predicate.values[0].solidity_repr};'
+
+                self.insert_in_functions(related_functions, initialization_code, self.insert_at_beginning_of_functions)
+            elif predicate.operator == parser.SINCE:
+                q_happened = predicate.solidity_vars[0]
+                p_happened_until_q = predicate.solidity_vars[1]
+                p = predicate.values[0].solidity_repr
+                q = predicate.values[1].solidity_repr
+
+                initialization_code = f'bool {q_happened} = false;\nbool {p_happened_until_q} = true;'
+
+                # TODO check and improve:
+                update_code = 'bool ' + q_happened + '_old = ' + q_happened + ';\nbool ' + p_happened_until_q + '_old = ' + p_happened_until_q + ';\n'
+                update_code += q_happened + ' = ' + q_happened + '_old || (' + p_happened_until_q + '_old && ' + q + ');\n'
+                update_code += p_happened_until_q + ' = ' + q_happened + '_old || (' + p_happened_until_q + '_old && ' + p + ');\n'
+
+                self.insert_contract_variables(initialization_code)
+                self.insert_in_functions(related_functions, update_code, self.insert_at_end_of_functions)
             else:
                 raise Exception('Unexpected predicate')
 
@@ -53,7 +73,7 @@ class Instrumentator:
 
     def instrument_assert(self, predicate):
         related_functions = self.get_related_functions(predicate)
-        assert_string = 'assert(' + predicate.solidity_repr + ');'
+        assert_string = '// VeriMan assert:\nassert(' + predicate.solidity_repr + ');'
 
         self.insert_in_functions(related_functions, assert_string, self.insert_at_end_of_functions)
 
@@ -61,13 +81,10 @@ class Instrumentator:
     def get_related_functions(self, predicate):
         related_functions = set()
 
-        slither = Slither(self.contract_path)
-        main_contract = slither.get_contract_from_name(self.contract_name)
-
         for variable_name in predicate.related_vars:
-            variable = main_contract.get_state_variable_from_name(variable_name)
-            if variable != None:  # TODO improve
-                functions_writing_variable = main_contract.get_functions_writing_to_variable(variable)
+            variable = self.contract_info.get_state_variable_from_name(variable_name)
+            if variable != None:  # FIXME this.balance, msg.sender, aMapping[aValue]
+                functions_writing_variable = self.contract_info.get_functions_writing_to_variable(variable)
                 related_functions = related_functions.union(self.get_public_callers(functions_writing_variable))
 
         return related_functions
@@ -78,7 +95,7 @@ class Instrumentator:
 
         for func in functions:
             if func.visibility == 'public':
-                result.add(func.name)
+                result.add(func)
             else:
                 # TODO check for cycles?
                 result = result.union(self.get_public_callers(func.reachable_from_functions))
@@ -86,47 +103,84 @@ class Instrumentator:
         return result
 
 
-    def insert_in_functions(self, function_names, code_string, insert_in_function):
-        in_function = False
-        open_blocks = 0
-        for index, line in enumerate(self.contract_lines):
-            # TODO check the line begins with spaces plus this:
-            if "function " in line:
-                found = False
-                for function_name in function_names:
-                    if "function " + function_name in line:
-                        found = True
-                        break
-                in_function = found
-
-            if in_function:
-                self.contract_lines = insert_in_function(self.contract_lines, code_string, line, index, open_blocks)
-                open_blocks = open_blocks + line.count("{") - line.count("}")
-
-
     def insert_contract_variables(self, initialization_string):
         in_contract = False
+
         for index, line in enumerate(self.contract_lines):
-            in_contract = in_contract or "contract " in line
-            if (in_contract and "{" in line) or (in_contract and "{" in line):
+            in_contract = in_contract or 'contract ' in line
+            if (in_contract and '{' in line) or ('contract ' and '{' in line):
                 self.contract_lines[index] = line.replace('{', '{\n' + initialization_string)
                 break
 
 
-    def insert_at_end_of_functions(self, contract_lines, code_string, line, index, open_blocks): # FIXME parameters
-        if "return " in line:
-            # TODO consider return might call another function:
-            contract_lines[index] = line.replace('return ', code_string + '\nreturn ')
+    def insert_in_functions(self, functions, code_string, insert_in_function):
+        remaining_functions = functions
+        in_function = False
+        open_blocks = 0
+        current_function = None
 
-        open_blocks = open_blocks + line.count("{") - line.count("}")
-        if open_blocks == 0:
-            contract_lines[index] = line.replace('}', code_string + '\n}')
+        for index, line in enumerate(self.contract_lines):
+            open_blocks = open_blocks + line.count('{') - line.count('}')
 
-        return contract_lines
+            if open_blocks <= 2:
+                line_stripped = line.lstrip()
+                if line_stripped.startswith('function '):
+                    found = False
+                    for func in remaining_functions:
+                        if line_stripped.startswith('function ' + func.name):
+                            found = True
+                            remaining_functions.remove(func)
+                            current_function = func
+                            break
+                    in_function = found
+
+            if in_function:
+                function_done = insert_in_function(code_string, index, open_blocks, current_function)
+                if function_done and len(remaining_functions) == 0:
+                    break
+                else:
+                    in_function = not function_done
 
 
-    def insert_at_beginning_of_functions(self, contract_lines, code_string, line, index, open_blocks):
-        if ("function " in line and "{" in line) or (open_blocks == 0 and "{" in line):
-            contract_lines[index] = line.replace('{', '{\n' + code_string)
+    def insert_at_beginning_of_functions(self, code_string, index, open_blocks, current_function):
+        function_done = False
+        line = self.contract_lines[index]
 
-        return contract_lines
+        if ('function ' in line and '{' in line) or (open_blocks == 0 and '{' in line):
+            self.contract_lines[index] = line.replace('{', '{\n' + code_string)
+            function_done = True
+
+        return function_done
+
+
+    def insert_at_end_of_functions(self, code_string, index, open_blocks, current_function):
+        function_done = False
+        line = self.contract_lines[index]
+
+        if 'return ' in line:
+            if not 'return VeriMan_' in line:
+                # For some versions of solc 'var' as a type is not enough:
+                return_type = ''
+                for type in current_function.return_type:
+                    return_type += type.name + ', ' # TODO check
+                return_type = return_type.rsplit(', ', 1)[0]
+                new_var_for_return_value = Parser.create_variable_name('return_value')
+                return_value = line.split('return ', 1)[1].split(';', 1)[0]
+
+                assignment_line = f'{return_type} {new_var_for_return_value} = {return_value};'
+                new_return_line = f'return {new_var_for_return_value}'
+
+                self.contract_lines[index] = line.replace(f'return {return_value}', f'{assignment_line}\n{code_string}\n{new_return_line}')
+            else:
+                self.contract_lines[index] = line.replace('return ', f'{code_string}\nreturn ')
+
+            function_done = open_blocks <= 2
+
+        if not function_done and open_blocks == 1 and '}' in line:
+            solidity_lines = line.split(';')
+            finishes_with_return = 'return ' in solidity_lines[len(solidity_lines) - 1]
+            if not finishes_with_return:
+                self.contract_lines[index] = line.replace('}', code_string + '\n}')
+                function_done = True
+
+        return function_done
