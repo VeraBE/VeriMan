@@ -5,9 +5,8 @@ bins = {
 
 run = {
 	'instrumentation': True,
-	# FIXME sometimes the predicate should be included in more functions like: 'previously(!a_called) && a_called' and 'previously(!a_called) && b_called'
 	'predicates': [
-		'num_calls > 1'
+		'previously(a_called) && a_called'
 	], # Solidity's number and boolean operations + {previously, since, once, always}, added only if instrumentation
 	'trace': True # VeriSol + Manticore
 }

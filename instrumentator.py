@@ -60,7 +60,7 @@ class Instrumentator:
                 # TODO check and improve:
                 update_code = 'bool ' + q_happened + '_old = ' + q_happened + ';\nbool ' + p_happened_until_q + '_old = ' + p_happened_until_q + ';\n'
                 update_code += q_happened + ' = ' + q_happened + '_old || (' + p_happened_until_q + '_old && ' + q + ');\n'
-                update_code += p_happened_until_q + ' = ' + q_happened + '_old || (' + p_happened_until_q + '_old && ' + p + ');\n'
+                update_code += p_happened_until_q + ' = ' + q_happened + '_old || (' + p_happened_until_q + '_old && ' + p + ');'
 
                 self.insert_contract_variables(initialization_code)
                 self.insert_in_functions(related_functions, update_code, self.insert_at_end_of_functions)
@@ -73,7 +73,7 @@ class Instrumentator:
 
     def instrument_assert(self, predicate):
         related_functions = self.get_related_functions(predicate)
-        assert_string = '// VeriMan assert:\nassert(' + predicate.solidity_repr + ');'
+        assert_string = 'assert(' + predicate.solidity_repr + '); // VeriMan assert'
 
         self.insert_in_functions(related_functions, assert_string, self.insert_at_end_of_functions)
 
@@ -86,6 +86,12 @@ class Instrumentator:
             if variable != None:  # FIXME this.balance, msg.sender, aMapping[aValue]
                 functions_writing_variable = self.contract_info.get_functions_writing_to_variable(variable)
                 related_functions = related_functions.union(self.get_public_callers(functions_writing_variable))
+
+        # TODO check and explain:
+        for func in self.contract_info.functions:
+            if not func in related_functions:
+                related_functions.add(func)
+                break
 
         return related_functions
 

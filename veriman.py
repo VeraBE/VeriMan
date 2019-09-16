@@ -205,7 +205,9 @@ class VeriMan:
         os.system('sol-merger ' + modified_contract_path)
         self.contract_path = modified_contract_path.replace('.sol', '_merged.sol')
         os.system("sed -i '1d' " + self.contract_path) # FIXME temporal, while VeriSol and Manticore don't support the same version
-        self.files_to_cleanup.append(self.contract_path)
+
+        if not (self.run_instrumentation and not self.run_trace):
+            self.files_to_cleanup.append(self.contract_path)
 
         if self.run_instrumentation:
             instrumentator = Instrumentator()
