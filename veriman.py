@@ -58,7 +58,8 @@ class VeriMan:
             if self.run_trace:
                 start_time = time.time()
                 trace = self.calculate_trace()
-                self.execute_trace(trace)
+                if len(trace) > 0:
+                    self.execute_trace(trace)
                 end_time = time.time()
 
                 print('[-] Time elapsed:', end_time - start_time, 'seconds')
@@ -94,24 +95,24 @@ class VeriMan:
 
         corral_trace = 'corral_out_trace.txt'
 
+        calls = []
+
         if not os.path.isfile(corral_trace):
             with open(corral_output) as corral_output_file:
                 corral_lines = corral_output_file.readlines()
-                corral_message = ''.join(corral_lines)
-                raise Exception('Analysis error\n' + corral_message)
+                message = ''.join(corral_lines)
+                print('[-] VeriSol output:\n', message)
         else:
             self.files_to_cleanup.append('corral_out.bpl')
             self.files_to_cleanup.append(corral_trace)
 
-        with open(corral_trace) as corral_trace_file:
-            corral_calls = corral_trace_file.read().split('CALL CorralChoice_' + self.contract_name)
+            with open(corral_trace) as corral_trace_file:
+                corral_calls = corral_trace_file.read().split('CALL CorralChoice_' + self.contract_name)
 
-        calls = []
-
-        for corral_call in corral_calls:
-            call_found = re.search('\ (\S*?)_', corral_call).group(1)
-            if call_found != self.contract_name:
-                calls.append(call_found)
+            for corral_call in corral_calls:
+                call_found = re.search('\ (\S*?)_', corral_call).group(1)
+                if call_found != self.contract_name:
+                    calls.append(call_found)
 
         return calls
 
@@ -200,7 +201,7 @@ class VeriMan:
         copyfile(self.contract_path, modified_contract_path)
         self.files_to_cleanup.append(modified_contract_path)
 
-        # Solidity and VeriSol don't support imports:
+        # Solidity and VeriSol don't support imports, plus sol-merger removes comments:
         os.system("sed -i '1ipragma solidity ^0.5;' " + modified_contract_path) # FIXME, temporal for sol-merger
         os.system('sol-merger ' + modified_contract_path)
         self.contract_path = modified_contract_path.replace('.sol', '_merged.sol')

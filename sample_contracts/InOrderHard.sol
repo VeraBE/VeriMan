@@ -30,6 +30,6 @@ contract InOrderHard {
         c_called = true;
         num_calls++;
 
-        assert(num_calls > 2);
+        // assert(num_calls > 2);
     }
 }
