@@ -1,0 +1,61 @@
+ @@grammar::Predicate
+
+            start = expression $ ;
+
+            expression
+                =
+                | left:term op:'&&' ~ right:expression
+                | left:term op:'||' ~ right:expression
+                | left:term op:'==' right:expression
+                | left:term op:'==' right:expression
+                | term
+                ;
+
+            term
+                =
+                | op:'previously' '(' ~ value:expression ')'
+                | op:'once' '(' ~ value:expression ')'
+                | op:'always' '(' ~ value:expression ')'
+                | op:'since' '(' ~ left:term ',' right:expression ')'
+                | op:'!' ~ value:term
+                | integerComparison
+                | factor
+                ;
+
+            factor
+                =
+                | '(' expression ')'
+                | var
+                ;
+
+            integerComparison
+                =
+                | integerExpression '<' integerExpression
+                | integerExpression '>' integerExpression
+                | integerExpression '<=' ~ integerExpression
+                | integerExpression '>=' ~ integerExpression
+                | integerExpression '!=' integerExpression
+                | integerExpression '==' integerExpression
+                ;
+
+            integerExpression
+                =
+                | integerTerm '+' ~ integerExpression
+                | integerTerm '-' ~ integerExpression
+                | integerTerm
+                ;
+
+            integerTerm
+                =
+                | integerFactor '*' ~ integerTerm
+                | integerFactor '/' ~ integerTerm
+                | integerFactor
+                ;
+
+            integerFactor
+                =
+                | '(' integerExpression ')'
+                | var
+                ;
+
+            var = /[a-zA-Z0-9_.\[\]]+/ ;

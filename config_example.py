@@ -1,17 +1,21 @@
 bins = {
 	'verisol_path': '/home/user/verisol',
-	'corral_path': '/home/user/verisol/corral/bin/Debug',
-	'solc_path': '/home/user/solc_0_4_25' # Needs a version lower than 0.5
+	'corral_path': '/home/user/verisol/corral/bin/Debug'
+}
+
+run = {
+	'instrumentation': True,
+	# FIXME sometimes the predicate should be included in more functions like: 'previously(!a_called) && a_called' and 'previously(!a_called) && b_called'
+	'predicates': [
+		'num_calls > 1'
+	], # Solidity's number and boolean operations + {previously, since, once, always}, added only if instrumentation
+	'trace': True # VeriSol + Manticore
 }
 
 contract = {
 	'name': '',  # If '' then the file name will be used
 	'path': '/home/user/contracts/InOrderHard.sol', # For now it only supports contracts that work both on 0.5 and 0.4, because VeriSol needs 0.5 and Manticore 0.4
-	'args': (),
-	'condition': 'num_calls > 1',  # Solidity, added only if condition_line > 0 or fully_verify_condition
-	'state': 'b_called',  # Solidity, optional
-	'fully_verify_condition': True,
-	'condition_line': 0
+	'args': ()
 }
 
 bounds = {

@@ -9,7 +9,7 @@ from manticore.ethereum import ManticoreEVM, DetectInvalid
 from manticore.utils import config as manticoreConfig
 from manticore.ethereum.plugins import LoopDepthLimiter, FilterFunctions, VerboseTraceStdout
 from shutil import copyfile
-from slither.slither import Slither
+from instrumentator import Instrumentator
 
 
 class VeriMan:
@@ -17,17 +17,13 @@ class VeriMan:
     def __init__(self):
         self.verisol_path = config.bins['verisol_path']
         self.corral_path = config.bins['corral_path']
-        self.solc_path = config.bins['solc_path']
+
+        self.run_instrumentation = config.run['instrumentation']
+        self.predicates = config.run['predicates']
+        self.run_trace = config.run['trace']
 
         self.contract_path = config.contract['path']
         self.contract_args = config.contract['args']
-        self.contract_condition = config.contract['condition']
-        self.fully_verify_condition = config.contract['fully_verify_condition']
-        self.condition_line = config.contract['condition_line']
-
-        self.condition_state = config.contract['state']
-        if len(self.condition_state) == 0:
-            self.condition_state = 'true'
 
         self.contract_name = config.contract['name']
         if len(self.contract_name) == 0:
@@ -53,21 +49,22 @@ class VeriMan:
 
     def analyze_contract(self):
         print('[-] Analyzing', self.contract_name)
-        if self.fully_verify_condition or self.condition_line > 0:
-            print('[-] Will check if', self.contract_condition, 'when ' + self.condition_state if self.condition_state != 'true' else '')
-
-        self.pre_process_contract()
+        if self.run_instrumentation:
+            print('[-] Will instrument to check: ', self.predicates)
 
         try:
-            start_time = time.time()
-            trace = self.calculate_trace()
-            self.execute_trace(trace)
-            end_time = time.time()
+            self.pre_process_contract()
 
-            print('[-] Time elapsed:', end_time - start_time, 'seconds')
+            if self.run_trace:
+                start_time = time.time()
+                trace = self.calculate_trace()
+                self.execute_trace(trace)
+                end_time = time.time()
+
+                print('[-] Time elapsed:', end_time - start_time, 'seconds')
         except:
             info = sys.exc_info()
-            print('[!] Unexpected exception:', info[1])
+            print('[!] Unexpected exception:\n', info[1])
             traceback.print_tb(info[2])
 
         if self.does_cleanup:
@@ -76,6 +73,8 @@ class VeriMan:
 
     def calculate_trace(self):
         print('[.] Calculating trace')
+
+        # TODO replace for new VeriSol command:
 
         print('[...] Generating intermediate representation')
         boogie_output = self.contract_name + '_Boogie.bpl'
@@ -151,18 +150,18 @@ class VeriMan:
             account_name = 'user_account_' + str(num)
             manticore.create_account(balance=self.user_initial_balance, name=account_name)
 
-        # FIXME temporal to remove pragma, because VeriSol needs 0.5 and Manticore 0.4:
-        os.system("sed -i '1d' " + self.contract_path)
-
         print('[...] Creating a contract and its library dependencies')
-        source_code = self.get_contract_code(self.contract_path)
+        with open(self.contract_path, 'r') as contract_file:
+            source_code = contract_file.read()
         try:
             contract_account = manticore.solidity_create_contract(source_code,
                                                                   owner=manticore.get_account('user_account_0'),
                                                                   args=self.contract_args,
-                                                                  contract_name=self.contract_name,
-                                                                  solc_bin=self.solc_path)
+                                                                  contract_name=self.contract_name)
         except:
+            info = sys.exc_info()
+            print('[!] Unexpected exception:\n', info[1])
+            traceback.print_tb(info[2])
             raise Exception('Check contract arguments')
 
         if contract_account is None:
@@ -203,88 +202,16 @@ class VeriMan:
         copyfile(self.contract_path, modified_contract_path)
         self.files_to_cleanup.append(modified_contract_path)
 
-        code_to_add = 'assert(' + self.contract_condition + ');'
-
-        if self.condition_state != '':
-            code_to_add = 'if (' + self.condition_state + ') ' + code_to_add
-
-        if self.condition_line > 0:
-            os.system("sed -i '" + str(self.condition_line) + 'i' + code_to_add + "' " + modified_contract_path)
-
         # Solidity and VeriSol don't support imports:
-        os.system("sed -i '1ipragma solidity ^0.5.10;' " + modified_contract_path) # FIXME, temporal for sol-merger
+        os.system("sed -i '1ipragma solidity ^0.5;' " + modified_contract_path) # FIXME, temporal for sol-merger
         os.system('sol-merger ' + modified_contract_path)
         self.contract_path = modified_contract_path.replace('.sol', '_merged.sol')
+        os.system("sed -i '1d' " + self.contract_path) # FIXME temporal, while VeriSol and Manticore don't support the same version
         self.files_to_cleanup.append(self.contract_path)
 
-        if self.fully_verify_condition:
-            slither = Slither(self.contract_path, solc=self.solc_path)
-            main_contract = slither.get_contract_from_name(self.contract_name)
-            variables_in_condition = self.get_variables_in_condition(self.contract_condition)
-            related_functions = set()
-            for variable_string in variables_in_condition:
-                variable = main_contract.get_state_variable_from_name(variable_string)
-                if variable != None:  # TODO improve
-                    functions_writing_variable = main_contract.get_functions_writing_to_variable(variable)
-                    related_functions = related_functions.union(self.get_public_callers(functions_writing_variable))
-
-            self.append_to_every_function_end(related_functions, code_to_add)
-
-
-    def get_public_callers(self, functions):
-        # TODO function should be improved, this is a prototype
-
-        result = set()
-
-        for func in functions:
-            if func.visibility == 'public':
-                result.add(func.name)
-            else:
-                result = result.union(self.get_public_callers(func.reachable_from_functions))
-
-        return result
-
-
-    def append_to_every_function_end(self, function_names, code):
-        # TODO function should be improved, this is a prototype
-        # TODO "missing" constructor needs to be considered
-
-        with open(self.contract_path) as contract_file:
-            contract = contract_file.read()
-
-        contract = contract.replace('}', '\n}')
-
-        contract_lines = contract.split('\n')
-
-        in_function = False
-        open_blocks = 0
-        for index, line in enumerate(contract_lines):
-            if "function " in line:
-                found = False
-                for function_name in function_names:
-                    if "function " + function_name in line:
-                        found = True
-                        break
-                in_function = found
-
-            if in_function:
-                if "return " in line:
-                    contract_lines[index] = line.replace('return ', code + '\nreturn ')
-
-                open_blocks = open_blocks + line.count("{") - line.count("}")
-                if open_blocks == 0:
-                    contract_lines[index] = line.replace('}', code + '\n}')
-
-        contract = '\n'.join(contract_lines)
-
-        with open(self.contract_path, 'w') as contract_file:
-            contract_file.write(contract)
-
-
-    def get_variables_in_condition(self, condition):
-        # TODO function should be improved, this is a prototype
-
-        return re.findall('\w+', condition)
+        if self.run_instrumentation:
+            instrumentator = Instrumentator()
+            instrumentator.instrument(self.contract_path, self.contract_name, self.predicates)
 
 
     def cleanup(self):
@@ -302,11 +229,6 @@ class VeriMan:
         os.mkdir(output_path)
 
         return output_path
-
-
-    def get_contract_code(self, contract_path):
-        with open(contract_path, 'r') as contract_file:
-            return contract_file.read()
 
 
     def output_results(self, manticore):

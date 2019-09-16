@@ -6,8 +6,7 @@
 * `python veriman.py`
 
 ## Requirements
-
+ 
+* `npm install -g sol-merger`
+* `pip install requirements.txt`
 * [`VeriSol`](https://github.com/microsoft/verisol)
-* [`Manticore`](https://github.com/trailofbits/manticore)
-* [`Slither`](https://github.com/crytic/slither)
-* [`sol-merger`](https://github.com/RyuuGan/sol-merger)
