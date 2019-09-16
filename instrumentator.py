@@ -50,17 +50,17 @@ class Instrumentator:
 
                 self.insert_in_functions(related_functions, initialization_code, self.insert_at_beginning_of_functions)
             elif predicate.operator == parser.SINCE:
-                q_happened = predicate.solidity_vars[0]
-                p_happened_until_q = predicate.solidity_vars[1]
-                p = predicate.values[0].solidity_repr
-                q = predicate.values[1].solidity_repr
+                q = predicate.solidity_vars[0]
+                p_since_q = predicate.solidity_vars[1]
+                q_repr = predicate.values[0].solidity_repr
+                p_repr = predicate.values[1].solidity_repr
 
-                initialization_code = f'bool {q_happened} = false;\nbool {p_happened_until_q} = true;'
+                initialization_code = f'bool {q} = false;\nbool {p_since_q} = true;'
 
-                # TODO check and improve:
-                update_code = 'bool ' + q_happened + '_old = ' + q_happened + ';\nbool ' + p_happened_until_q + '_old = ' + p_happened_until_q + ';\n'
-                update_code += q_happened + ' = ' + q_happened + '_old || (' + p_happened_until_q + '_old && ' + q + ');\n'
-                update_code += p_happened_until_q + ' = ' + q_happened + '_old || (' + p_happened_until_q + '_old && ' + p + ');'
+                update_code = '''{q} = {q_repr} || {q};\n\
+if({q}) {{\n\
+{p_since_q} = {p_repr} && {p_since_q};\n\
+}}\n'''.format(q=q, p_since_q=p_since_q, q_repr=q_repr, p_repr=p_repr)
 
                 self.insert_contract_variables(initialization_code)
                 self.insert_in_functions(related_functions, update_code, self.insert_at_end_of_functions)
@@ -186,7 +186,7 @@ class Instrumentator:
             solidity_lines = line.split(';')
             finishes_with_return = 'return ' in solidity_lines[len(solidity_lines) - 1]
             if not finishes_with_return:
-                self.contract_lines[index] = line.replace('}', code_string + '\n}')
+                self.contract_lines[index] =  (code_string + '\n}').join(line.rsplit('}', 1))
                 function_done = True
 
         return function_done

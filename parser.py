@@ -93,10 +93,10 @@ class Predicate:
             self.solidity_repr = new_var
             self.solidity_vars = [new_var]
         elif operator == SINCE:
-            q_happened = Parser.create_variable_name('q_happened')
-            p_happened_until_q = Parser.create_variable_name('p_happened_until_q')
-            self.solidity_repr = f'({q_happened} {AND} {p_happened_until_q})'
-            self.solidity_vars = [q_happened, p_happened_until_q]
+            q = Parser.create_variable_name('q')
+            p_since_q = Parser.create_variable_name('p_since_q')
+            self.solidity_repr = f'({q} {OR} {p_since_q})'
+            self.solidity_vars = [q, p_since_q]
         else:
             self.solidity_vars = []
             if self.operator in [AND, OR, EQUAL, NOTEQUAL]:
