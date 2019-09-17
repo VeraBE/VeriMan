@@ -7,7 +7,7 @@
                 | left:term op:'&&' ~ right:expression
                 | left:term op:'||' ~ right:expression
                 | left:term op:'==' right:expression
-                | left:term op:'==' right:expression
+                | left:term op:'!=' right:expression
                 | left:term op:'->' right:expression
                 | term
                 ;
@@ -35,22 +35,19 @@
                 | integerExpression '>' integerExpression
                 | integerExpression '<=' ~ integerExpression
                 | integerExpression '>=' ~ integerExpression
-                | integerExpression '!=' ~ integerExpression
+                | integerExpression '!=' integerExpression
                 | integerExpression '==' integerExpression
                 ;
 
             integerExpression
                 =
-                | integerTerm '+' ~ integerExpression
-                | integerTerm '-' integerExpression
-                | '-' integerExpression
-                | integerTerm
-                ;
-
-            integerTerm
-                =
-                | integerFactor '*' ~ integerTerm
-                | integerFactor '/' ~ integerTerm
+                | integerExpression '+' ~ integerExpression
+                | integerExpression '-' integerExpression
+                | integerExpression '*' integerExpression
+                | integerExpression '/' ~ integerExpression
+                | integerExpression '%' integerExpression
+                | integerExpression '**' integerExpression
+                | '-' integerFactor
                 | integerFactor
                 ;
 
