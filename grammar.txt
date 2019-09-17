@@ -43,6 +43,7 @@
                 =
                 | integerTerm '+' ~ integerExpression
                 | integerTerm '-' integerExpression
+                | '-' integerExpression
                 | integerTerm
                 ;
 

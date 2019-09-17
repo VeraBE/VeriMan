@@ -36,50 +36,48 @@ class Instrumentator:
 
             # FIXME "missing" constructor needs to be considered, fix when Solidity version is fixed
 
-            self.instrument_new_variables(predicate)
+            functions_to_instrument = self.get_functions_to_instrument(predicate)
 
-            self.instrument_assert(predicate)
+            self.instrument_new_variables(predicate, functions_to_instrument)
+
+            assert_string = 'assert(' + predicate.solidity_repr + '); // VERIMAN ASSERT'
+            self.insert_in_functions(functions_to_instrument, assert_string, self.insert_at_end_of_functions) # FIXME
 
         contract = '\n'.join(self.contract_lines)
         with open(self.contract_path, 'w') as contract_file:
             contract_file.write(contract)
 
 
-    def instrument_new_variables(self, predicate):
-        if len(predicate.solidity_vars) > 0:
-            functions_to_instrument = self.get_functions_to_instrument(predicate)
+    def instrument_new_variables(self, predicate, functions_to_instrument):
+        if predicate.operator == parser.PREVIOUSLY:
+            initialization_code = f'bool {predicate.solidity_vars[0]} = {predicate.values[0].solidity_repr};'
 
-            if predicate.operator == parser.PREVIOUSLY:
-                initialization_code = f'bool {predicate.solidity_vars[0]} = {predicate.values[0].solidity_repr};'
-
-                self.insert_in_functions(functions_to_instrument, initialization_code, self.insert_at_beginning_of_functions)
-            elif predicate.operator == parser.SINCE:
-                q = predicate.solidity_vars[0]
-                p_since_q = predicate.solidity_vars[1]
-                q_repr = predicate.values[1].solidity_repr
-                p_repr = predicate.values[0].solidity_repr
-
-                initialization_code = f'bool {q} = false;\nbool {p_since_q} = true;'
-
-                update_code = '''{q} = {q_repr} || {q};\n\
-if({q}) {{\n\
-{p_since_q} = {p_repr} && {p_since_q};\n\
+            self.insert_in_functions(functions_to_instrument, initialization_code, self.insert_at_beginning_of_functions)
+        elif predicate.operator == parser.SINCE:
+            q = predicate.solidity_vars[0]
+            p_since_q = predicate.solidity_vars[1]
+            q_repr = predicate.values[1].solidity_repr
+            p_repr = predicate.values[0].solidity_repr
+            initialization_code = f'bool{q}=false;\nbool{p_since_q}=true;'
+            update_code = '''{q}={q_repr}||{q};\n\
+if({q}){{\n\
+{p_since_q}={p_repr}&&{p_since_q};\n\
 }}\n'''.format(q=q, p_since_q=p_since_q, q_repr=q_repr, p_repr=p_repr)
 
-                self.insert_contract_variables(initialization_code)
-                self.insert_in_functions(functions_to_instrument, update_code, self.insert_at_end_of_functions)
-            else:
-                raise Exception('Unexpected predicate')
+            self.insert_contract_variables(initialization_code)
+            self.insert_in_functions(functions_to_instrument, update_code, self.insert_at_end_of_functions)
+        elif predicate.operator in [parser.ONCE, parser.ALWAYS]:
+            predicate_name = predicate.solidity_vars[0]
+            predicate_repr = predicate.values[0].solidity_repr
+            initialization_value = 'true' if predicate.operator == parser.ALWAYS else 'false'
+            update_operator = parser.AND if predicate.operator == parser.ALWAYS else parser.OR
+            initialization_code = f'bool{predicate_name}={initialization_value};'
+            update_code = f'{predicate_name}={predicate_repr}{update_operator}{predicate_name};'
 
+            self.insert_contract_variables(initialization_code)
+            self.insert_in_functions(functions_to_instrument, update_code, self.insert_at_end_of_functions)
         for term in predicate.values:
-            self.instrument_new_variables(term)
-
-
-    def instrument_assert(self, predicate):
-        functions_to_instrument = self.get_functions_to_instrument(predicate)
-        assert_string = 'assert(' + predicate.solidity_repr + '); // VeriMan assert'
-
-        self.insert_in_functions(functions_to_instrument, assert_string, self.insert_at_end_of_functions)
+            self.instrument_new_variables(term, functions_to_instrument)
 
 
     def get_functions_to_instrument(self, predicate):
@@ -135,7 +133,7 @@ if({q}) {{\n\
 
 
     def insert_in_functions(self, functions, code_string, insert_in_function):
-        remaining_functions = functions
+        remaining_functions = functions.copy()
         in_function = False
         open_blocks = 0
         current_function = None
@@ -179,7 +177,7 @@ if({q}) {{\n\
         line = self.contract_lines[index]
 
         if 'return ' in line:
-            if not 'return VeriMan_' in line:
+            if not 'return VERIMAN_' in line:
                 # For some versions of solc 'var' as a type is not enough:
                 return_type = ''
                 for type in current_function.return_type:
@@ -188,7 +186,7 @@ if({q}) {{\n\
                 new_var_for_return_value = Parser.create_variable_name('return_value')
                 return_value = line.split('return ', 1)[1].split(';', 1)[0]
 
-                assignment_line = f'{return_type} {new_var_for_return_value} = {return_value};'
+                assignment_line = f'{return_type} {new_var_for_return_value}={return_value};'
                 new_return_line = f'return {new_var_for_return_value}'
 
                 self.contract_lines[index] = line.replace(f'return {return_value}', f'{assignment_line}\n{code_string}\n{new_return_line}')

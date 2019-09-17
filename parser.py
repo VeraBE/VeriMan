@@ -41,7 +41,7 @@ class Parser:
 
     @staticmethod
     def create_variable_name(base):
-        return 'VeriMan_' + base + '_' + ''.join(
+        return 'VERIMAN_' + base + '_' + ''.join(
             random.choice(string.ascii_lowercase) for _ in range(VARIABLE_NAME_LENGTH))
 
 
@@ -64,13 +64,10 @@ class Semantics(object):
             return ast
         elif ast.op == SINCE:
             return Predicate(ast.op, [ast.left, ast.right])
-        elif ast.op == ONCE:
+        elif ast.op in [ONCE, ALWAYS, NOT, PREVIOUSLY]:
+            # TODO document decision of not making these reductions:
             # once(p) === since(true, p)
-            return Predicate(SINCE, [TRUE, ast.value])
-        elif ast.op == ALWAYS:
             # always(p) === !once(!p) === !since(true, !p)
-            return Predicate(NOT, [Predicate(SINCE, [TRUE, Predicate(NOT, [ast.value])])])
-        elif ast.op in [PREVIOUSLY, NOT]:
             return Predicate(ast.op, [ast.value])
         else:
             raise Exception('Unknown operator', ast.op)
@@ -86,7 +83,9 @@ class Predicate:
         for value in values:
             term = value
 
-            if not isinstance(value, Predicate):
+            if isinstance(value, list) and value[0] == '(' and value[2] == ')' and isinstance(value[1], Predicate):
+                term = value[1]
+            elif not isinstance(value, Predicate):
                 term = Term(value)
 
             self.related_vars += term.related_vars
@@ -94,22 +93,21 @@ class Predicate:
 
         self.related_vars = list(set(self.related_vars))
 
-        if operator == PREVIOUSLY:
-            new_var = Parser.create_variable_name('prev')
+        if operator in [PREVIOUSLY, ALWAYS, ONCE]:
+            new_var = Parser.create_variable_name(operator)
             self.solidity_repr = new_var
             self.solidity_vars = [new_var]
         elif operator == SINCE:
             q = Parser.create_variable_name('q')
             p_since_q = Parser.create_variable_name('p_since_q')
-            self.solidity_repr = f'(({q} {AND} {p_since_q}) {OR} {NOT}{q})'
-
+            self.solidity_repr = f'(({q}{AND}{p_since_q}){OR}{NOT}{q})'
             self.solidity_vars = [q, p_since_q]
         else:
             self.solidity_vars = []
             if self.operator in [AND, OR, EQUAL, NOTEQUAL]:
-                self.solidity_repr = self.values[0].solidity_repr + " " + self.operator + " " + self.values[1].solidity_repr
+                self.solidity_repr = f'({self.values[0].solidity_repr}){self.operator}({self.values[1].solidity_repr})'
             elif self.operator == NOT:
-                self.solidity_repr = '!' + self.values[0].solidity_repr
+                self.solidity_repr = f'!({self.values[0].solidity_repr})'
 
 
 class Term(Predicate):
@@ -124,7 +122,7 @@ class Term(Predicate):
         else:
             raise Exception('Unexpected term')
 
-        self.solidity_repr = '(' + self.solidity_repr.rstrip().lstrip() + ')'
+        self.solidity_repr = self.solidity_repr.replace(' ', '')
 
         vars = re.findall('[a-zA-Z0-9_.]*?[a-zA-Z][a-zA-Z0-9_.]*', self.solidity_repr)
         # TODO improve:
