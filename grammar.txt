@@ -8,6 +8,7 @@
                 | left:term op:'||' ~ right:expression
                 | left:term op:'==' right:expression
                 | left:term op:'==' right:expression
+                | left:term op:'->' right:expression
                 | term
                 ;
 
@@ -41,7 +42,7 @@
             integerExpression
                 =
                 | integerTerm '+' ~ integerExpression
-                | integerTerm '-' ~ integerExpression
+                | integerTerm '-' integerExpression
                 | integerTerm
                 ;
 

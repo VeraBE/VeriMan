@@ -1,6 +1,7 @@
 from slither.slither import Slither
 from parser import Parser
 import parser
+import collections
 
 
 class Instrumentator:
@@ -18,6 +19,8 @@ class Instrumentator:
 
         slither = Slither(self.contract_path)
         self.contract_info = slither.get_contract_from_name(self.contract_name)
+        if self.contract_info is None:
+            raise Exception('Check config file for contract name')
 
         with open(self.contract_path) as contract_file:
             contract = contract_file.read()
@@ -26,7 +29,8 @@ class Instrumentator:
 
         parser = Parser()
 
-        # TODO consider repeated terms inside predicates:
+        # TODO consider repeated terms inside predicates?
+
         for predicate_string in predicates:
             predicate = parser.parse(predicate_string)
 
@@ -43,17 +47,17 @@ class Instrumentator:
 
     def instrument_new_variables(self, predicate):
         if len(predicate.solidity_vars) > 0:
-            related_functions = self.get_related_functions(predicate)
+            functions_to_instrument = self.get_functions_to_instrument(predicate)
 
             if predicate.operator == parser.PREVIOUSLY:
                 initialization_code = f'bool {predicate.solidity_vars[0]} = {predicate.values[0].solidity_repr};'
 
-                self.insert_in_functions(related_functions, initialization_code, self.insert_at_beginning_of_functions)
+                self.insert_in_functions(functions_to_instrument, initialization_code, self.insert_at_beginning_of_functions)
             elif predicate.operator == parser.SINCE:
                 q = predicate.solidity_vars[0]
                 p_since_q = predicate.solidity_vars[1]
-                q_repr = predicate.values[0].solidity_repr
-                p_repr = predicate.values[1].solidity_repr
+                q_repr = predicate.values[1].solidity_repr
+                p_repr = predicate.values[0].solidity_repr
 
                 initialization_code = f'bool {q} = false;\nbool {p_since_q} = true;'
 
@@ -63,7 +67,7 @@ if({q}) {{\n\
 }}\n'''.format(q=q, p_since_q=p_since_q, q_repr=q_repr, p_repr=p_repr)
 
                 self.insert_contract_variables(initialization_code)
-                self.insert_in_functions(related_functions, update_code, self.insert_at_end_of_functions)
+                self.insert_in_functions(functions_to_instrument, update_code, self.insert_at_end_of_functions)
             else:
                 raise Exception('Unexpected predicate')
 
@@ -72,39 +76,50 @@ if({q}) {{\n\
 
 
     def instrument_assert(self, predicate):
-        related_functions = self.get_related_functions(predicate)
+        functions_to_instrument = self.get_functions_to_instrument(predicate)
         assert_string = 'assert(' + predicate.solidity_repr + '); // VeriMan assert'
 
-        self.insert_in_functions(related_functions, assert_string, self.insert_at_end_of_functions)
+        self.insert_in_functions(functions_to_instrument, assert_string, self.insert_at_end_of_functions)
 
 
-    def get_related_functions(self, predicate):
-        related_functions = set()
+    def get_functions_to_instrument(self, predicate):
+        functions_to_instrument = set()
 
         for variable_name in predicate.related_vars:
             variable = self.contract_info.get_state_variable_from_name(variable_name)
             if variable != None:  # FIXME this.balance, msg.sender, aMapping[aValue]
                 functions_writing_variable = self.contract_info.get_functions_writing_to_variable(variable)
-                related_functions = related_functions.union(self.get_public_callers(functions_writing_variable))
 
-        # TODO check and explain:
+                for func in functions_writing_variable:
+                    if func.visibility == 'public':
+                        functions_to_instrument.add(func)
+
+                functions_to_instrument = functions_to_instrument.union(self.get_public_callers(functions_writing_variable))
+
+        # We can thought of all no-state-changing functions as equivalent:
         for func in self.contract_info.functions:
-            if not func in related_functions:
-                related_functions.add(func)
+            if not func in functions_to_instrument:
+                functions_to_instrument.add(func)
                 break
 
-        return related_functions
-
+        return functions_to_instrument
 
     def get_public_callers(self, functions):
         result = set()
 
         for func in functions:
-            if func.visibility == 'public':
-                result.add(func)
-            else:
-                # TODO check for cycles?
-                result = result.union(self.get_public_callers(func.reachable_from_functions))
+            callers, queue = set(), collections.deque([func])
+
+            while queue:
+                func_to_check = queue.popleft()
+
+                for neighbour in func_to_check.reachable_from_functions:
+                    if neighbour not in callers:
+                        queue.append(neighbour)
+                        callers.add(neighbour)
+
+                        if neighbour.visibility == 'public':
+                            result.add(neighbour)
 
         return result
 

@@ -11,6 +11,7 @@ AND = '&&'
 OR = '||'
 EQUAL = '=='
 NOTEQUAL = '!='
+IMPLICATION = '->'
 NOT = '!'
 SINCE = 'since'
 PREVIOUSLY = 'previously'
@@ -51,6 +52,9 @@ class Semantics(object):
             return ast
         elif ast.op in [AND, OR, EQUAL, NOTEQUAL]:
             return Predicate(ast.op, [ast.left, ast.right])
+        elif ast.op == IMPLICATION:
+            # p -> q === !p || q
+            return Predicate(OR, [Predicate(NOT, [ast.left]), ast.right])
         else:
             raise Exception('Unknown operator', ast.op)
 
@@ -61,8 +65,10 @@ class Semantics(object):
         elif ast.op == SINCE:
             return Predicate(ast.op, [ast.left, ast.right])
         elif ast.op == ONCE:
+            # once(p) === since(true, p)
             return Predicate(SINCE, [TRUE, ast.value])
         elif ast.op == ALWAYS:
+            # always(p) === !once(!p) === !since(true, !p)
             return Predicate(NOT, [Predicate(SINCE, [TRUE, Predicate(NOT, [ast.value])])])
         elif ast.op in [PREVIOUSLY, NOT]:
             return Predicate(ast.op, [ast.value])
@@ -95,7 +101,8 @@ class Predicate:
         elif operator == SINCE:
             q = Parser.create_variable_name('q')
             p_since_q = Parser.create_variable_name('p_since_q')
-            self.solidity_repr = f'({q} {OR} {p_since_q})'
+            self.solidity_repr = f'(({q} {AND} {p_since_q}) {OR} {NOT}{q})'
+
             self.solidity_vars = [q, p_since_q]
         else:
             self.solidity_vars = []

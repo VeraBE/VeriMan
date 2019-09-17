@@ -5,9 +5,10 @@ bins = {
 
 run = {
 	'instrumentation': True,
+	# FIXME!!! properly handle since([tautology], p) (like 'once') because then it should report that it holds whenever q is true
 	'predicates': [
 		'previously(a_called) && a_called'
-	], # Solidity's number and boolean operations + {previously, since, once, always}, added only if instrumentation
+	], # Solidity's number and boolean operations + {->, previously, since, once, always}, added only if instrumentation
 	'trace': True # VeriSol + Manticore
 }
 
