@@ -14,7 +14,9 @@ from instrumentator import Instrumentator
 
 class VeriMan:
 
-    def __init__(self):
+    def __init__(self, config):
+        # TODO improve config read
+
         self.verisol_path = config.bins['verisol_path']
         self.corral_path = config.bins['corral_path']
 
@@ -41,54 +43,86 @@ class VeriMan:
         self.fallback_data_size = config.bounds['fallback_data_size']
 
         self.report_invalid = config.output['report_invalid']
-        self.verbose = config.output['verbose']
         self.does_cleanup = config.output['cleanup']
+        self.really_verbose = config.output['really_verbose']
+        self.verbose = config.output['verbose']
+        self.print = print if self.verbose else lambda *a, **k: None
 
         self.files_to_cleanup = []
 
 
     def analyze_contract(self):
-        print('[-] Analyzing', self.contract_name)
+        trace = []
+        error_states = []
+
+        self.print('[-] Analyzing', self.contract_name)
         if self.run_instrumentation:
-            print('[-] Will instrument to check: ', self.predicates)
+            self.print('[-] Will instrument to check: ', self.predicates)
 
         try:
             self.pre_process_contract()
 
             if self.run_trace:
                 start_time = time.time()
+
                 trace = self.calculate_trace()
+
                 if len(trace) > 0:
-                    self.execute_trace(trace)
+                    error_states = self.execute_trace(trace)
+                    if len(error_states) < 1:
+                        self.print('[!] VeriSol found an error trace but Manticore couldn\'t confirm it')
+
                 end_time = time.time()
 
-                print('[-] Time elapsed:', end_time - start_time, 'seconds')
+                self.print('[-] Time elapsed:', end_time - start_time, 'seconds')
         except:
             info = sys.exc_info()
-            print('[!] Unexpected exception:\n', info[1])
-            if self.verbose:
+            self.print('[!] Unexpected exception:\n', info[1])
+            if self.really_verbose:
                 traceback.print_tb(info[2])
 
         if self.does_cleanup:
             self.cleanup()
 
+        return trace, error_states
+
+
+    def pre_process_contract(self):
+        modified_contract_path = self.contract_path.replace('.sol', '_toAnalyze.sol')
+
+        copyfile(self.contract_path, modified_contract_path)
+        self.files_to_cleanup.append(modified_contract_path)
+
+        # Solidity and VeriSol don't support imports, plus sol-merger removes comments:
+        os.system("sed -i '1ipragma solidity ^0.5;' " + modified_contract_path) # FIXME, temporal for sol-merger
+        os.system('sol-merger ' + modified_contract_path)
+        self.contract_path = modified_contract_path.replace('.sol', '_merged.sol')
+        os.system("sed -i '1d' " + self.contract_path) # FIXME temporal, while VeriSol and Manticore don't support the same version
+
+        if not (self.run_instrumentation and not self.run_trace):
+            self.files_to_cleanup.append(self.contract_path)
+
+        if self.run_instrumentation:
+            instrumentator = Instrumentator()
+            instrumentator.instrument(self.contract_path, self.contract_name, self.predicates)
+
 
     def calculate_trace(self):
-        print('[.] Calculating trace')
+        self.print('[.] Calculating trace')
 
         # TODO replace for new VeriSol command:
 
-        print('[...] Generating intermediate representation')
+        self.print('[...] Generating intermediate representation')
         boogie_output = self.contract_name + '_Boogie.bpl'
         boogie_file = open(boogie_output, 'a+')  # Creates file if it doesn't exist, SolToBoogie needs an existing file
         self.files_to_cleanup.append(boogie_output)
-        os.system('dotnet ' + self.verisol_path + '/Sources/SolToBoogie/bin/Debug/netcoreapp2.2/SolToBoogie.dll ' + self.contract_path + ' ' + self.verisol_path + ' ' + boogie_output)
+        os.system('dotnet ' + self.verisol_path + '/Sources/SolToBoogie/bin/Debug/netcoreapp2.2/SolToBoogie.dll ' + self.contract_path + ' ' + self.verisol_path + ' ' + boogie_output + ('> /dev/null' if not self.verbose else ''))
         boogie_file_first_char = boogie_file.read(1)
         boogie_file.close()
         if len(boogie_file_first_char) == 0:
             raise Exception('Error generating intermediate representation')
 
-        print('[...] Analysing')
+        self.print('[...] Analysing')
         corral_output = self.contract_name + '_Corral.txt'
         self.files_to_cleanup.append(corral_output)
         os.system('mono ' + self.corral_path + '/corral.exe /recursionBound:' + str(self.loop_limit) + ' /k:' + str(self.tx_limit) + ' /main:CorralEntry_' + self.contract_name + ' /tryCTrace ' + boogie_output + ' /printDataValues:1 1> ' + corral_output)
@@ -101,7 +135,7 @@ class VeriMan:
             with open(corral_output) as corral_output_file:
                 corral_lines = corral_output_file.readlines()
                 message = ''.join(corral_lines)
-                print('[-] VeriSol output:\n', message)
+                self.print('[-] VeriSol output:\n', message)
         else:
             self.files_to_cleanup.append('corral_out.bpl')
             self.files_to_cleanup.append(corral_trace)
@@ -119,10 +153,10 @@ class VeriMan:
 
     def execute_trace(self, trace):
         if len(trace) == 0:
-            print('[!] No trace to execute has been found')
+            self.print('[!] No trace to execute has been found')
             return
 
-        print('[.] Executing trace')
+        self.print('[.] Executing trace')
 
         consts = manticoreConfig.get_group('core')
         consts.procs = self.procs
@@ -130,7 +164,7 @@ class VeriMan:
         output_path = self.get_output_path()
         manticore = ManticoreEVM(workspace_url=output_path)
 
-        if self.verbose:
+        if self.really_verbose:
             manticore.verbosity(5)  # 5 is the max level
             verbose_plugin = VerboseTraceStdout()
             manticore.register_plugin(verbose_plugin)
@@ -147,12 +181,12 @@ class VeriMan:
             invalid_detector = DetectInvalid()
             manticore.register_detector(invalid_detector)
 
-        print('[...] Creating user accounts')
+        self.print('[...] Creating user accounts')
         for num in range(0, self.amount_user_accounts):
             account_name = 'user_account_' + str(num)
             manticore.create_account(balance=self.user_initial_balance, name=account_name)
 
-        print('[...] Creating a contract and its library dependencies')
+        self.print('[...] Creating a contract and its library dependencies')
         with open(self.contract_path, 'r') as contract_file:
             source_code = contract_file.read()
         try:
@@ -166,7 +200,7 @@ class VeriMan:
         if contract_account is None:
             raise Exception('Contract account is None, check contract arguments')
 
-        print('[...] Calling functions in trace')
+        self.print('[...] Calling functions in trace')
 
         function_types = {}
 
@@ -191,34 +225,30 @@ class VeriMan:
                 else:
                     function_to_call()
 
-        print('[...] Processing output')
-        self.output_results(manticore)
+        self.print('[...] Processing output')
 
+        throw_states = []
+        for state in manticore.terminated_states:
+            if str(state.context['last_exception']) == 'THROW':
+                throw_states.append(state)
 
-    def pre_process_contract(self):
-        modified_contract_path = self.contract_path.replace('.sol', '_toAnalyze.sol')
+        message = 'that negates the given condition or a preexisting has been found.'
+        self.print(('[!] No path ' if len(throw_states) == 0 else '[!] A path ') + message)
 
-        copyfile(self.contract_path, modified_contract_path)
-        self.files_to_cleanup.append(modified_contract_path)
+        if self.verbose:
+            for state in throw_states:
+                manticore.generate_testcase(state)
 
-        # Solidity and VeriSol don't support imports, plus sol-merger removes comments:
-        os.system("sed -i '1ipragma solidity ^0.5;' " + modified_contract_path) # FIXME, temporal for sol-merger
-        os.system('sol-merger ' + modified_contract_path)
-        self.contract_path = modified_contract_path.replace('.sol', '_merged.sol')
-        os.system("sed -i '1d' " + self.contract_path) # FIXME temporal, while VeriSol and Manticore don't support the same version
+        self.print('[-] Look for full output in: ' + manticore.workspace)
 
-        if not (self.run_instrumentation and not self.run_trace):
-            self.files_to_cleanup.append(self.contract_path)
-
-        if self.run_instrumentation:
-            instrumentator = Instrumentator()
-            instrumentator.instrument(self.contract_path, self.contract_name, self.predicates)
+        return throw_states
 
 
     def cleanup(self):
-        print('[.] Cleaning up')
+        self.print('[.] Cleaning up')
         for file in self.files_to_cleanup:
             os.remove(file)
+        self.files_to_cleanup = []
 
 
     def get_output_path(self):
@@ -232,21 +262,6 @@ class VeriMan:
         return output_path
 
 
-    def output_results(self, manticore):
-        throw_states = []
-        for state in manticore.terminated_states:
-            if str(state.context['last_exception']) == 'THROW':
-                throw_states.append(state)
-
-        message = 'that negates the given condition or a preexisting has been found.'
-        print(('[!] No path ' if len(throw_states) == 0 else '[!] A path ') + message)
-
-        for state in throw_states:
-            manticore.generate_testcase(state)
-
-        print('[-] Look for full output in: ' + manticore.workspace)
-
-
 if __name__ == '__main__':
-    veriman = VeriMan()
-    veriman.analyze_contract()
+    veriman = VeriMan(config)
+    trace, error_states = veriman.analyze_contract()

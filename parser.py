@@ -1,6 +1,7 @@
 import tatsu
 import re
 import random, string
+import os
 from tatsu.ast import AST
 from iteration_utilities import deepflatten
 
@@ -26,7 +27,7 @@ VARIABLE_NAME_LENGTH = 8
 class Parser:
 
     def __init__(self):
-        with open(GRAMMAR_FILE, 'r') as grammar_file:
+        with open(os.path.dirname(os.path.abspath(__file__)) + '/' + GRAMMAR_FILE, 'r') as grammar_file:
             self.grammar = tatsu.compile(grammar_file.read())
 
 
@@ -64,10 +65,13 @@ class Semantics(object):
             return ast
         elif ast.op == SINCE:
             return Predicate(ast.op, [ast.left, ast.right])
-        elif ast.op in [ONCE, ALWAYS, NOT, PREVIOUSLY]:
-            # TODO document decision of not making these reductions:
+        elif ast.op == ONCE:
             # once(p) === since(true, p)
+            return Predicate(SINCE, [TRUE, ast.value])
+        elif ast.op == ALWAYS:
             # always(p) === !once(!p) === !since(true, !p)
+            return Predicate(NOT, [Predicate(SINCE, [TRUE, Predicate(NOT, [ast.value])])])
+        elif ast.op in [PREVIOUSLY, NOT]:
             return Predicate(ast.op, [ast.value])
         else:
             raise Exception('Unknown operator', ast.op)
@@ -93,21 +97,21 @@ class Predicate:
 
         self.related_vars = list(set(self.related_vars))
 
-        if operator in [PREVIOUSLY, ALWAYS, ONCE]:
+        if operator == PREVIOUSLY:
             new_var = Parser.create_variable_name(operator)
             self.solidity_repr = new_var
             self.solidity_vars = [new_var]
         elif operator == SINCE:
             q = Parser.create_variable_name('q')
             p_since_q = Parser.create_variable_name('p_since_q')
-            self.solidity_repr = f'(({q}{AND}{p_since_q}){OR}{NOT}{q})'
+            self.solidity_repr = f'({q}{AND}{p_since_q})'
             self.solidity_vars = [q, p_since_q]
         else:
             self.solidity_vars = []
-            if self.operator in [AND, OR, EQUAL, NOTEQUAL]:
-                self.solidity_repr = f'({self.values[0].solidity_repr}){self.operator}({self.values[1].solidity_repr})'
-            elif self.operator == NOT:
+            if self.operator == NOT:
                 self.solidity_repr = f'!({self.values[0].solidity_repr})'
+            elif self.operator in [EQUAL, NOTEQUAL, AND, OR]:
+                self.solidity_repr = f'({self.values[0].solidity_repr}){self.operator}({self.values[1].solidity_repr})'
 
 
 class Term(Predicate):

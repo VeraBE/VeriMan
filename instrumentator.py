@@ -24,7 +24,7 @@ class Instrumentator:
 
         with open(self.contract_path) as contract_file:
             contract = contract_file.read()
-        contract = contract.replace('}', '\n}')
+        contract = contract.replace('}', '\n}') # FIXME
         self.contract_lines = contract.split('\n')
 
         parser = Parser()
@@ -58,24 +58,15 @@ class Instrumentator:
             p_since_q = predicate.solidity_vars[1]
             q_repr = predicate.values[1].solidity_repr
             p_repr = predicate.values[0].solidity_repr
-            initialization_code = f'bool{q}=false;\nbool{p_since_q}=true;'
-            update_code = '''{q}={q_repr}||{q};\n\
-if({q}){{\n\
+            initialization_code = f'bool {q}=false;\nbool {p_since_q}=true;'
+            update_code = '''if({q}){{\n\
 {p_since_q}={p_repr}&&{p_since_q};\n\
-}}\n'''.format(q=q, p_since_q=p_since_q, q_repr=q_repr, p_repr=p_repr)
+}}\n
+{q}={q_repr}||{q};\n'''.format(q=q, p_since_q=p_since_q, q_repr=q_repr, p_repr=p_repr)
 
             self.insert_contract_variables(initialization_code)
             self.insert_in_functions(functions_to_instrument, update_code, self.insert_at_end_of_functions)
-        elif predicate.operator in [parser.ONCE, parser.ALWAYS]:
-            predicate_name = predicate.solidity_vars[0]
-            predicate_repr = predicate.values[0].solidity_repr
-            initialization_value = 'true' if predicate.operator == parser.ALWAYS else 'false'
-            update_operator = parser.AND if predicate.operator == parser.ALWAYS else parser.OR
-            initialization_code = f'bool{predicate_name}={initialization_value};'
-            update_code = f'{predicate_name}={predicate_repr}{update_operator}{predicate_name};'
 
-            self.insert_contract_variables(initialization_code)
-            self.insert_in_functions(functions_to_instrument, update_code, self.insert_at_end_of_functions)
         for term in predicate.values:
             self.instrument_new_variables(term, functions_to_instrument)
 
@@ -126,13 +117,15 @@ if({q}){{\n\
         in_contract = False
 
         for index, line in enumerate(self.contract_lines):
-            in_contract = in_contract or 'contract ' in line
-            if (in_contract and '{' in line) or ('contract ' and '{' in line):
+            in_contract = in_contract or 'contract ' + self.contract_name in line
+            if (in_contract and '{' in line) or ('contract ' + self.contract_name and '{' in line):
                 self.contract_lines[index] = line.replace('{', '{\n' + initialization_string)
                 break
 
 
     def insert_in_functions(self, functions, code_string, insert_in_function):
+        # FIXME only insert in contract functions
+
         remaining_functions = functions.copy()
         in_function = False
         open_blocks = 0
