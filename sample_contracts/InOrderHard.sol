@@ -9,18 +9,16 @@ contract InOrderHard {
         num_calls++;
     }
 
-    function b() public returns(int) {
+    function b() public {
         require(a_called);
         
         if(b_called) {
            num_calls = 0;
-           return 10;
+           return;
         }
 
         b_called = true;
         num_calls++;
-
-        return 20;
     }
 
     function c() public {
@@ -29,7 +27,5 @@ contract InOrderHard {
 
         c_called = true;
         num_calls++;
-
-        // assert(num_calls > 2);
     }
 }

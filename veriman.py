@@ -1,7 +1,6 @@
 import os
 import sys
 import traceback
-import re
 import time
 import config
 from datetime import datetime
@@ -18,7 +17,6 @@ class VeriMan:
         # TODO improve config read
 
         self.verisol_path = config.bins['verisol_path']
-        self.corral_path = config.bins['corral_path']
 
         self.run_instrumentation = config.run['instrumentation']
         self.predicates = config.run['predicates']
@@ -97,7 +95,8 @@ class VeriMan:
         os.system("sed -i '1ipragma solidity ^0.5;' " + modified_contract_path) # FIXME, temporal for sol-merger
         os.system('sol-merger ' + modified_contract_path)
         self.contract_path = modified_contract_path.replace('.sol', '_merged.sol')
-        os.system("sed -i '1d' " + self.contract_path) # FIXME temporal, while VeriSol and Manticore don't support the same version
+        # FIXME temporal, VeriSol and Manticore don't support the same version, VeriSol needs 0.5.10 and Manticore a version prior to 0.5:
+        os.system("sed -i '1d' " + self.contract_path)
 
         if not (self.run_instrumentation and not self.run_trace):
             self.files_to_cleanup.append(self.contract_path)
@@ -110,52 +109,38 @@ class VeriMan:
     def calculate_trace(self):
         self.print('[.] Calculating trace')
 
-        # TODO replace for new VeriSol command:
+        verisol_output = 'verisol_output.txt'
+        self.files_to_cleanup += [verisol_output]
 
-        self.print('[...] Generating intermediate representation')
-        boogie_output = self.contract_name + '_Boogie.bpl'
-        boogie_file = open(boogie_output, 'a+')  # Creates file if it doesn't exist, SolToBoogie needs an existing file
-        self.files_to_cleanup.append(boogie_output)
-        os.system('dotnet ' + self.verisol_path + '/Sources/SolToBoogie/bin/Debug/netcoreapp2.2/SolToBoogie.dll ' + self.contract_path + ' ' + self.verisol_path + ' ' + boogie_output + ('> /dev/null' if not self.verbose else ''))
-        boogie_file_first_char = boogie_file.read(1)
-        boogie_file.close()
-        if len(boogie_file_first_char) == 0:
-            raise Exception('Error generating intermediate representation')
-
-        self.print('[...] Analysing')
-        corral_output = self.contract_name + '_Corral.txt'
-        self.files_to_cleanup.append(corral_output)
-        os.system('mono ' + self.corral_path + '/corral.exe /recursionBound:' + str(self.loop_limit) + ' /k:' + str(self.tx_limit) + ' /main:CorralEntry_' + self.contract_name + ' /tryCTrace ' + boogie_output + ' /printDataValues:1 1> ' + corral_output)
-
-        corral_trace = 'corral_out_trace.txt'
+        os.system('dotnet ' + self.verisol_path + ' ' + self.contract_path + ' ' + self.contract_name + ' /tryProof /tryRefutation:' + str(self.tx_limit) + ' /printTransactionSequence > ' + verisol_output + ' 2> /dev/null')
 
         calls = []
 
-        if not os.path.isfile(corral_trace):
-            with open(corral_output) as corral_output_file:
-                corral_lines = corral_output_file.readlines()
-                message = ''.join(corral_lines)
-                self.print('[-] VeriSol output:\n', message)
-        else:
-            self.files_to_cleanup.append('corral_out.bpl')
-            self.files_to_cleanup.append(corral_trace)
+        with open(verisol_output) as verisol_output_file:
+            verisol_output_string = verisol_output_file.read()
 
-            with open(corral_trace) as corral_trace_file:
-                corral_calls = corral_trace_file.read().split('CALL CorralChoice_' + self.contract_name)
+        if 'Proof found' in verisol_output_string:
+            self.files_to_cleanup += ['__SolToBoogieTest_out.bpl', 'boogie.txt']
+            self.print('[!] Contract proven, asserts cannot fail')
+        elif 'Found a counterexample' in verisol_output_string:
+            self.files_to_cleanup += ['__SolToBoogieTest_out.bpl', 'boogie.txt', 'corral.txt', 'corral_counterex.txt', 'corral_out.bpl', 'corral_out_trace.txt']
 
-            for corral_call in corral_calls:
-                call_found = re.search('\ (\S*?)_', corral_call).group(1)
-                if call_found != self.contract_name:
+            trace_parts = verisol_output_string.split(self.contract_name + '::')
+
+            for part in trace_parts:
+                call_found = part.split(' ', 1)[0]
+                if call_found not in ['Command', 'Constructor']:
                     calls.append(call_found)
+        elif 'Did not find a proof' in verisol_output_string:
+            self.files_to_cleanup += ['__SolToBoogieTest_out.bpl', 'boogie.txt', 'corral.txt']
+            self.print('[!] Contract cannot be proven, but a counterexample was not found, successful up to', str(self.tx_limit), 'transactions')
+        else:
+            self.print('[!] Error reported by VeriSol:\n', verisol_output_string)
 
         return calls
 
 
     def execute_trace(self, trace):
-        if len(trace) == 0:
-            self.print('[!] No trace to execute has been found')
-            return
-
         self.print('[.] Executing trace')
 
         consts = manticoreConfig.get_group('core')
@@ -232,14 +217,14 @@ class VeriMan:
             if str(state.context['last_exception']) == 'THROW':
                 throw_states.append(state)
 
-        message = 'that negates the given condition or a preexisting has been found.'
+        message = 'that negates a predicate or a preexisting assert has been found.'
         self.print(('[!] No path ' if len(throw_states) == 0 else '[!] A path ') + message)
 
         if self.verbose:
             for state in throw_states:
                 manticore.generate_testcase(state)
 
-        self.print('[-] Look for full output in: ' + manticore.workspace)
+        self.print('[-] Look for full output in:', manticore.workspace)
 
         return throw_states
 

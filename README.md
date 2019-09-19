@@ -60,11 +60,10 @@ transaction sequence"
  
 * [`npm install -g sol-merger`](https://www.npmjs.com/package/sol-merger)
 * `pip install requirements.txt`
-* [`VeriSol`](https://github.com/microsoft/verisol)
+* [`VeriSol`](https://github.com/microsoft/verisol/tree/e5a245f63ee8ab5d12ff4524f35d52bc56ea825d)
 
 ## Big TODOs
 
-* Support the latest VeriSol version
 * Report which predicates failed
 * Handle inheritance
 * Support return values of functions on predicates

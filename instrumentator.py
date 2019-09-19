@@ -198,6 +198,10 @@ class Instrumentator:
 
             function_done = open_blocks <= 2
 
+        if 'return;' in line:
+            self.contract_lines[index] = line.replace('return;', f'{code_string}\nreturn;')
+            function_done = open_blocks <= 2
+
         if not function_done and open_blocks == 1 and '}' in line:
             solidity_lines = line.split(';')
             finishes_with_return = 'return ' in solidity_lines[len(solidity_lines) - 1]

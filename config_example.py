@@ -1,6 +1,5 @@
 bins = {
-	'verisol_path': '/home/user/verisol',
-	'corral_path': '/home/user/verisol/corral/bin/Debug'
+	'verisol_path': '/home/user/verisol/Binaries/VeriSol.dll' # Or your VeriSol command if you installed it globally
 }
 
 run = {
@@ -18,7 +17,7 @@ contract = {
 }
 
 bounds = {
-	'loops': 100,  # Affects Corral, and Manticore execution only if loop_delimiter
+	'loops': 10,  # Affects Manticore execution only if loop_delimiter
 	'txs': 5,
 	'procs': 3,  # Some errors didn't show up when using multiple procs
 	'user_initial_balance': 100,
