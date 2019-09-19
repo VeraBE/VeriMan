@@ -75,8 +75,11 @@ class Instrumentator:
         functions_to_instrument = set()
 
         for variable_name in predicate.related_vars:
-            variable = self.contract_info.get_state_variable_from_name(variable_name)
-            if variable != None:  # FIXME this.balance, msg.sender, aMapping[aValue]
+
+            if self.is_solidity_property(variable_name):
+                functions_to_instrument = set(self.contract_info.functions_entry_points)
+            else:
+                variable = self.contract_info.get_state_variable_from_name(variable_name)
                 functions_writing_variable = self.contract_info.get_functions_writing_to_variable(variable)
 
                 for func in functions_writing_variable:
@@ -85,6 +88,9 @@ class Instrumentator:
 
                 functions_to_instrument = functions_to_instrument.union(self.get_public_callers(functions_writing_variable))
 
+            if len(functions_to_instrument) == len(self.contract_info.functions_entry_points):
+                break
+
         # We can thought of all no-state-changing functions as equivalent:
         for func in self.contract_info.functions:
             if not func in functions_to_instrument:
@@ -92,6 +98,12 @@ class Instrumentator:
                 break
 
         return functions_to_instrument
+
+
+    def is_solidity_property(self, variable_name):
+        parts = variable_name.split('.')
+        return parts[0] in ['block', 'msg', 'tx', 'this', 'now']
+
 
     def get_public_callers(self, functions):
         result = set()
@@ -117,15 +129,13 @@ class Instrumentator:
         in_contract = False
 
         for index, line in enumerate(self.contract_lines):
-            in_contract = in_contract or 'contract ' + self.contract_name in line
-            if (in_contract and '{' in line) or ('contract ' + self.contract_name and '{' in line):
+            in_contract = in_contract or 'contract ' in line
+            if (in_contract and '{' in line) or ('contract ' and '{' in line):
                 self.contract_lines[index] = line.replace('{', '{\n' + initialization_string)
                 break
 
 
     def insert_in_functions(self, functions, code_string, insert_in_function):
-        # FIXME only insert in contract functions
-
         remaining_functions = functions.copy()
         in_function = False
         open_blocks = 0

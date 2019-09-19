@@ -12,7 +12,7 @@ class TestVeriMan(TestCase):
     def setUp(self):
         test_config = config
 
-        # TODO improve config read
+        # TODO improve config handling
 
         test_config.contract['path'] = os.path.dirname(os.path.abspath(__file__)).replace('/tests', '') + '/sample_contracts/InOrderHard.sol'
         test_config.contract['args'] = ()

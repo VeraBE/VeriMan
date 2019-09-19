@@ -3,10 +3,6 @@ bins = {
 	'corral_path': '/home/user/verisol/corral/bin/Debug'
 }
 
-# TODO support return values on predicates
-# TODO analyze one predicate at a time
-# TODO add echidna instrumentation
-
 run = {
 	'instrumentation': True,
 	'predicates': [
