@@ -1,10 +1,8 @@
 import os
-import sys
-import traceback
 import time
 import config
 from datetime import datetime
-from manticore.ethereum import ManticoreEVM, DetectInvalid
+from manticore.ethereum import ManticoreEVM, DetectInvalid, ABI
 from manticore.utils import config as manticoreConfig
 from manticore.ethereum.plugins import LoopDepthLimiter, FilterFunctions, VerboseTraceStdout
 from shutil import copyfile
@@ -14,31 +12,13 @@ from instrumentator import Instrumentator
 class VeriMan:
 
     def __init__(self, config):
-        # TODO improve config read
-
-        self.verisol_path = config.bins['verisol_path']
-
-        self.run_instrumentation = config.run['instrumentation']
-        self.predicates = config.run['predicates']
-        self.run_trace = config.run['trace']
+        # TODO improve config read, set on analyze?
 
         self.contract_path = config.contract['path']
         self.contract_args = config.contract['args']
-
         self.contract_name = config.contract['name']
         if len(self.contract_name) == 0:
             self.contract_name = self.contract_path.rsplit('/', 1)[1].replace('.sol', '')
-
-        self.loop_limit = config.bounds['loops']
-        self.tx_limit = config.bounds['txs']
-        self.procs = config.bounds['procs']
-        self.user_initial_balance = config.bounds['user_initial_balance']
-        self.avoid_constant_txs = config.bounds['avoid_constant_txs']
-        self.force_loop_limit = config.bounds['loop_delimiter']
-        self.amount_user_accounts = config.bounds['user_accounts']
-        if self.amount_user_accounts < 1:
-            raise Exception('At least one user account has to be created')
-        self.fallback_data_size = config.bounds['fallback_data_size']
 
         self.report_invalid = config.output['report_invalid']
         self.does_cleanup = config.output['cleanup']
@@ -46,43 +26,54 @@ class VeriMan:
         self.verbose = config.output['verbose']
         self.print = print if self.verbose else lambda *a, **k: None
 
+        self.instrument = config.instrumentation['instrument']
+        self.predicates = config.instrumentation['predicates']
+
+        self.verify = config.verification['verify']
+        self.verisol_path = config.verification['verisol_path']
+        self.loop_limit = config.verification['loops']
+        self.tx_limit = config.verification['txs']
+        self.procs = config.verification['procs']
+        self.user_initial_balance = config.verification['user_initial_balance']
+        self.avoid_constant_txs = config.verification['avoid_constant_txs']
+        self.force_loop_limit = config.verification['loop_delimiter']
+        self.amount_user_accounts = config.verification['user_accounts']
+        if self.verify and self.amount_user_accounts < 1:
+            raise Exception('At least one user account has to be created')
+        self.fallback_data_size = config.verification['fallback_data_size']
+
         self.files_to_cleanup = []
 
 
     def analyze_contract(self):
-        trace = []
-        error_states = []
+        proof_found = False
+        verisol_counterexample = []
+        manticore_counterexample = []
 
         self.print('[-] Analyzing', self.contract_name)
-        if self.run_instrumentation:
-            self.print('[-] Will instrument to check: ', self.predicates)
+        if self.instrument:
+            self.print('[-] Will instrument to check:', self.predicates)
 
-        try:
-            self.pre_process_contract()
+        self.pre_process_contract()
 
-            if self.run_trace:
-                start_time = time.time()
+        if self.verify:
+            start_time = time.time()
 
-                trace = self.calculate_trace()
+            proof_found, verisol_counterexample = self.run_verisol()
 
-                if len(trace) > 0:
-                    error_states = self.execute_trace(trace)
-                    if len(error_states) < 1:
-                        self.print('[!] VeriSol found an error trace but Manticore couldn\'t confirm it')
+            if len(verisol_counterexample) > 0:
+                manticore_counterexample = self.run_manticore(verisol_counterexample)
+                if len(manticore_counterexample) < 1:
+                    self.print(f'[!] VeriSol found a counterexample but Manticore couldn\'t confirm it')
 
-                end_time = time.time()
+            end_time = time.time()
 
-                self.print('[-] Time elapsed:', end_time - start_time, 'seconds')
-        except:
-            info = sys.exc_info()
-            self.print('[!] Unexpected exception:\n', info[1])
-            if self.really_verbose:
-                traceback.print_tb(info[2])
+            self.print('[-] Time elapsed:', end_time - start_time, 'seconds')
 
         if self.does_cleanup:
             self.cleanup()
 
-        return trace, error_states
+        return proof_found, verisol_counterexample, manticore_counterexample
 
 
     def pre_process_contract(self):
@@ -98,28 +89,29 @@ class VeriMan:
         # FIXME temporal, VeriSol and Manticore don't support the same version, VeriSol needs 0.5.10 and Manticore a version prior to 0.5:
         os.system("sed -i '1d' " + self.contract_path)
 
-        if not (self.run_instrumentation and not self.run_trace):
+        if not (self.instrument and not self.verify):
             self.files_to_cleanup.append(self.contract_path)
 
-        if self.run_instrumentation:
+        if self.instrument:
             instrumentator = Instrumentator()
             instrumentator.instrument(self.contract_path, self.contract_name, self.predicates)
 
 
-    def calculate_trace(self):
-        self.print('[.] Calculating trace')
+    def run_verisol(self):
+        self.print('[.] Running VeriSol')
 
         verisol_output = 'verisol_output.txt'
         self.files_to_cleanup += [verisol_output]
 
         os.system('dotnet ' + self.verisol_path + ' ' + self.contract_path + ' ' + self.contract_name + ' /tryProof /tryRefutation:' + str(self.tx_limit) + ' /printTransactionSequence > ' + verisol_output + ' 2> /dev/null')
 
-        calls = []
-
         with open(verisol_output) as verisol_output_file:
             verisol_output_string = verisol_output_file.read()
 
-        if 'Proof found' in verisol_output_string:
+        proof_found = 'Proof found' in verisol_output_string
+        counterexample = []
+
+        if proof_found:
             self.files_to_cleanup += ['__SolToBoogieTest_out.bpl', 'boogie.txt']
             self.print('[!] Contract proven, asserts cannot fail')
         elif 'Found a counterexample' in verisol_output_string:
@@ -130,18 +122,18 @@ class VeriMan:
             for part in trace_parts:
                 call_found = part.split(' ', 1)[0]
                 if call_found not in ['Command', 'Constructor']:
-                    calls.append(call_found)
+                    counterexample.append(call_found)
         elif 'Did not find a proof' in verisol_output_string:
             self.files_to_cleanup += ['__SolToBoogieTest_out.bpl', 'boogie.txt', 'corral.txt']
             self.print('[!] Contract cannot be proven, but a counterexample was not found, successful up to', str(self.tx_limit), 'transactions')
         else:
-            self.print('[!] Error reported by VeriSol:\n', verisol_output_string)
+            raise Exception('Error reported by VeriSol:\n' + verisol_output_string)
 
-        return calls
+        return proof_found, counterexample
 
 
-    def execute_trace(self, trace):
-        self.print('[.] Executing trace')
+    def run_manticore(self, trace):
+        self.print('[.] Running Manticore')
 
         consts = manticoreConfig.get_group('core')
         consts.procs = self.procs
@@ -213,6 +205,7 @@ class VeriMan:
         self.print('[...] Processing output')
 
         throw_states = []
+
         for state in manticore.terminated_states:
             if str(state.context['last_exception']) == 'THROW':
                 throw_states.append(state)
@@ -224,9 +217,27 @@ class VeriMan:
             for state in throw_states:
                 manticore.generate_testcase(state)
 
+        counterexample = []
+
+        if len(throw_states) > 0:
+            state = throw_states[0]
+
+            for sym_tx in state.platform.human_transactions:
+                conc_tx = sym_tx.concretize(state)
+                calldata = conc_tx.data
+                function_id = calldata[:4]
+                metadata = manticore.get_metadata(contract_account.address)
+                signature = metadata.get_func_signature(function_id)
+                function_name = metadata.get_func_name(function_id)
+                if signature:
+                    _, arguments = ABI.deserialize(signature, calldata)
+                else:
+                    arguments = (calldata,)
+                counterexample.append(function_name + str(arguments))
+
         self.print('[-] Look for full output in:', manticore.workspace)
 
-        return throw_states
+        return counterexample
 
 
     def cleanup(self):
@@ -249,4 +260,4 @@ class VeriMan:
 
 if __name__ == '__main__':
     veriman = VeriMan(config)
-    trace, error_states = veriman.analyze_contract()
+    proof_found, verisol_counterexample, manticore_counterexample = veriman.analyze_contract()

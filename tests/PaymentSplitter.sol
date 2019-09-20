@@ -1,3 +1,5 @@
+pragma solidity ^0.5.10;
+
 contract PaymentSplitter {
     uint256 private _totalShares;
     uint256 private _totalReleased;
@@ -6,7 +8,7 @@ contract PaymentSplitter {
     mapping(address => uint256) private _released;
     address[] private _payees;
 
-    function PaymentSplitter(address[] memory payees, uint256[] memory shares) public {
+    constructor(address[] memory payees, uint256[] memory shares) public {
 
         require(payees.length == shares.length);
         require(payees.length > 0);
@@ -39,10 +41,10 @@ contract PaymentSplitter {
         return _payees[index];
     }
 
-    function release(address account) public {
+    function release(address payable account) public {
         require(_shares[account] > 0);
 
-        uint256 totalReceived = this.balance + _totalReleased;
+        uint256 totalReceived = address(this).balance + _totalReleased;
         uint256 payment = totalReceived * _shares[account] / _totalShares - _released[account];
 
         require(payment != 0);
@@ -52,7 +54,7 @@ contract PaymentSplitter {
 
         assert(false);
 
-        // account.transfer(payment); VeriSol doesn't support transfers yet
+        account.transfer(payment);
     }
 
     function _addPayee(address account, uint256 shares_) private {

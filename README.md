@@ -1,14 +1,6 @@
 # VeriMan
 
-With VeriMan you can define temporal properties using your contract's variables, and
-Solidity's numeric and boolean operations.
-
-The tool instruments the contract to find a trace that falsifies at least one of the properties.
-To do so, it runs the instrumented contract against VeriSol, if it finds a trace then it executes
-it on Manticore to get a concrete trasaction sequence.
-
-Its possible to only enable the instrumentation option to get a contract that can be run
-against any tool that tries to make asserts fail, like Mythril.
+With VeriMan you can define temporal properties using your contract's variables, and Solidity's numeric and boolean operations. Then, the tool instruments the contract to find a trace that falsifies at least one of the properties or prove that they hold. You can then check the instrumented contract against any tool that tries to make asserts fail, like Mythril, or any tool that also attemps to proove they hold.
 
 For example, given the following contract:
 
@@ -51,16 +43,18 @@ You could define as temporal properties:
 transaction sequence"
 * `always(num_calls >= 0)`, with the interpretation of `always` you can imagine :relaxed:
 
-## Usage
-
-* Copy `config_example.py` into `config.py` and update values, you can define the properties there.
-* `python veriman.py`
+VeriMan also allows you to directly use VeriSol and Manticore for the analysis. It runs the instrumented contract on VeriSol, if a counterexample is found then it executes it on Manticore to get a concrete transaction sequence. Right now there's a compatibility issue for this feature because VeriSol supports Solidity 0.5.10 and Manticore requires a version lower than 0.5, so your contract has to be compatible with both to run this analysis.
 
 ## Requirements
  
 * [`npm install -g sol-merger`](https://www.npmjs.com/package/sol-merger)
 * `pip install requirements.txt`
-* [`VeriSol`](https://github.com/microsoft/verisol/tree/e5a245f63ee8ab5d12ff4524f35d52bc56ea825d)
+* [`VeriSol`](https://github.com/microsoft/verisol/tree/e5a245f63ee8ab5d12ff4524f35d52bc56ea825d) if you want to use the verification feature.
+
+## Usage
+
+* Copy `config_example.py` into `config.py` and update values, you can define the properties there.
+* `python veriman.py`
 
 ## Big TODOs
 
@@ -68,4 +62,4 @@ transaction sequence"
 * Handle inheritance
 * Support return values of functions on predicates
 * Support more Solidity constructs (`ether`, `finney`, `wei`, `minutes`, `hours`, `days`, etc.)
-* Support Echidna
+* Generate Echidna invariants

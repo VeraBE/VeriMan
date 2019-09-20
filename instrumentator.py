@@ -35,6 +35,7 @@ class Instrumentator:
             predicate = parser.parse(predicate_string)
 
             # FIXME "missing" constructor needs to be considered, fix when Solidity version is fixed
+            # FIXME "missing" fallback function also needs to be considered
 
             functions_to_instrument = self.get_functions_to_instrument(predicate)
 
@@ -145,15 +146,24 @@ class Instrumentator:
             open_blocks = open_blocks + line.count('{') - line.count('}')
 
             if open_blocks <= 2:
+                # TODO improve:
+
                 line_stripped = line.lstrip()
-                if line_stripped.startswith('function '):
+                line_no_spaces = line.replace(' ', '')
+
+                if line_stripped.startswith('function ') \
+                        or line_no_spaces.startswith('function()') \
+                        or line_no_spaces.startswith('constructor('):
                     found = False
                     for func in remaining_functions:
-                        if line_stripped.startswith('function ' + func.name):
+                        if line_no_spaces.startswith('function' + func.name + '(') \
+                                or (func.name == 'fallback' and line_no_spaces.startswith('function()'))\
+                                or (func.name == 'constructor' and (line_no_spaces.startswith('constructor(') or line_no_spaces.startswith('function' + self.contract_name + '('))):
                             found = True
                             remaining_functions.remove(func)
                             current_function = func
                             break
+
                     in_function = found
 
             if in_function:
@@ -162,6 +172,19 @@ class Instrumentator:
                     break
                 else:
                     in_function = not function_done
+
+        if len(remaining_functions) > 0:
+            # FIXME temporal:
+
+            not_constructor = None
+
+            for func in remaining_functions:
+                if func.name not in ['slitherConstructorVariables', 'fallback', 'constructor']:
+                    not_constructor = func
+                    break
+
+            if not_constructor is not None:
+                raise Exception('One or more functions couldn\'t be instrumented')
 
 
     def insert_at_beginning_of_functions(self, code_string, index, open_blocks, current_function):
