@@ -45,6 +45,8 @@ transaction sequence"
 
 VeriMan also allows you to directly use VeriSol and Manticore for the analysis. It runs the instrumented contract on VeriSol, if a counterexample is found then it executes it on Manticore to get a concrete transaction sequence. Right now there's a compatibility issue for this feature because VeriSol supports Solidity 0.5.10 and Manticore requires a version lower than 0.5, so your contract has to be compatible with both to run this analysis.
 
+Echidna is also supported, if you set `for_echidna` to `true` in your configuration file, VeriMan will generate a contract ready to be fuzzed with it.
+
 ## Requirements
  
 * Python3

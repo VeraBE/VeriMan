@@ -31,12 +31,12 @@ class Instrumentator:
 
             for predicate_string in predicates:
                 predicate = parser.parse(predicate_string)
-                function_to_add += '(' + predicate.solidity_repr + ') && '
+                function_to_add += '(' + predicate.solidity_repr + ')\n&& '
 
                 functions_to_instrument = self.__get_functions_to_instrument(predicate)
                 self.__instrument_new_variables(predicate, functions_to_instrument, instrument_for_echidna)
 
-            function_to_add = function_to_add.rsplit(' && ', 1)[0]
+            function_to_add = function_to_add.rsplit('\n&& ', 1)[0]
             function_to_add += ';\n}'
             self.__insert_in_contract(function_to_add)
         else:
