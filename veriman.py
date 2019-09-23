@@ -49,9 +49,7 @@ class VeriMan:
         if len(self.contract_name) == 0:
             self.contract_name = self.contract_path.rsplit('/', 1)[1].replace('.sol', '')
 
-        self.report_invalid = config.output.report_invalid
         self.does_cleanup = config.output.cleanup
-        self.really_verbose = config.output.really_verbose
         self.verbose = config.output.verbose
         self.print = print if self.verbose else lambda *a, **k: None
 
@@ -141,11 +139,6 @@ class VeriMan:
         output_path = self.__create_output_path()
         manticore = ManticoreEVM(workspace_url=output_path)
 
-        if self.really_verbose:
-            manticore.verbosity(5)  # 5 is the max level
-            verbose_plugin = VerboseTraceStdout()
-            manticore.register_plugin(verbose_plugin)
-
         if self.force_loop_limit:
             loop_delimiter = LoopDepthLimiter(loop_count_threshold=self.loop_limit)
             manticore.register_plugin(loop_delimiter)
@@ -153,10 +146,6 @@ class VeriMan:
         if self.avoid_constant_txs:
             filter_nohuman_constants = FilterFunctions(regexp=r'.*', depth='human', mutability='constant', include=False)
             manticore.register_plugin(filter_nohuman_constants)
-
-        if self.report_invalid:
-            invalid_detector = DetectInvalid()
-            manticore.register_detector(invalid_detector)
 
         self.print('[...] Creating user accounts')
         for num in range(0, self.amount_user_accounts):

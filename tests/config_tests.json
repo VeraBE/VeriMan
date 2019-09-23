@@ -5,9 +5,7 @@
     "args": "()"
   },
   "output": {
-    "report_invalid": false,
     "verbose": false,
-    "really_verbose": false,
     "cleanup": true
   },
   "instrumentation": {
@@ -21,11 +19,11 @@
       "txs_bound": 5 // Max counterexample length
     },
     "manticore": {
-      "loops": 10, // Affects only if loop_delimiter
       "procs": 3,  // For multithreading
-      "user_initial_balance": 100,
-      "avoid_constant_txs": false, // Avoid all TXs that have no effect on the storage
+      "avoid_constant_txs": true, // Avoid all TXs that have no effect on the storage
       "loop_delimiter": false,
+      "loops": 10, // Affects only if loop_delimiter
+      "user_initial_balance": 100,
       "user_accounts": 2,
       "fallback_data_size": 320
     }

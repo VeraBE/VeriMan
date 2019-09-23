@@ -5,9 +5,7 @@
     "args": "()"
   },
   "output": {
-    "report_invalid": false,
     "verbose": true,
-    "really_verbose": false,
     "cleanup": true
   },
   "instrumentation": {
@@ -24,12 +22,12 @@
       "txs_bound": 5 // Max counterexample length
     },
     "manticore": {
-      "loops": 10, // Affects only if loop_delimiter
       "procs": 3,  // For multithreading
+      "avoid_constant_txs": true, // Avoid all TXs that have no effect on the storage
+      "loop_delimiter": false, // TODO fix Manticore plugin
+      "loops": 10, // Affects only if loop_delimiter
       "user_initial_balance": 100,
-      "avoid_constant_txs": false, // Avoid all TXs that have no effect on the storage
-      "loop_delimiter": false,
-      "user_accounts": 2,  // FIXME get amount of accounts from VeriSol trace
+      "user_accounts": 2, // FIXME get amount of accounts from VeriSol trace
       "fallback_data_size": 320
     }
   }

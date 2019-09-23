@@ -130,7 +130,7 @@ class TestVeriMan(TestCase):
         contract_name = 'PaymentSplitter'
         instrumentation_only_config = TestVeriMan.read_test_config()
         instrumentation_only_config.contract.path = os.path.dirname(os.path.abspath(__file__)) + '/' + contract_name + '.sol'
-        instrumentation_only_config.instrumentation.predicates = ['_totalReleased <= _totalShares']
+        instrumentation_only_config.instrumentation.predicates = ['_totalReleased <= _totalShares', 'msg.value < 10']
         instrumentation_only_config.verification.verify = False
 
         proof_found, verisol_counterexample = self.veriman.analyze_contract(instrumentation_only_config)

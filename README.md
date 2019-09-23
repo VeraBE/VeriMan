@@ -59,9 +59,7 @@ VeriMan also allows you to directly use VeriSol and Manticore for the analysis. 
 
 ## Big TODOs
 
-* Report which predicates failed
 * Handle inheritance
 * Support return values of functions on predicates
 * Support more Solidity constructs (`ether`, `finney`, `wei`, `minutes`, `hours`, `days`, etc.)
 * Generate Echidna invariants
-* Get at least to 100% code coverage

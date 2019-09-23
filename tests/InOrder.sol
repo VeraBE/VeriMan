@@ -21,11 +21,13 @@ contract InOrder {
         num_calls++;
     }
 
-    function c() public {
+    function c() public returns(int) {
         require(a_called);
         require(b_called);
 
         c_called = true;
         num_calls++;
+
+        return 3;
     }
 }

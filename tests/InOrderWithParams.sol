@@ -17,7 +17,6 @@ contract InOrderWithParams {
         }
     }
 
-
     function c(uint pc) public {
         require(a_called);
         require(b_called);
