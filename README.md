@@ -51,13 +51,13 @@ Echidna is also supported, if you set `for_echidna` to `true` in your configurat
  
 * Python3
 * [`npm install -g sol-merger`](https://www.npmjs.com/package/sol-merger)
-* `pip install requirements.txt`
+* `pip install -r requirements.txt`
 * [VeriSol](https://github.com/microsoft/verisol/tree/0fd7f14956a24ad2b931a9a441f012d53daab609) if you want to use the verification feature.
 
 ## Usage
 
 * Copy `config_example.json` into `config.json` and update values, you can define the properties there.
-* `python client.py`
+* `python3 client.py`
 
 ## Big TODOs
 
