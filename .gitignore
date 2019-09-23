@@ -108,4 +108,4 @@ venv.bak/
 
 # VeriMan
 output/
-config.py
+config.json
