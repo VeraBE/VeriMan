@@ -6,7 +6,7 @@ import collections
 
 class Instrumentator:
 
-    def instrument(self, contract_path, contract_name, predicates):
+    def instrument(self, contract_path, contract_name, predicates, instrument_for_echidna):
         self.contract_path = contract_path
         self.contract_name = contract_name
 
@@ -22,31 +22,51 @@ class Instrumentator:
 
         parser = Parser()
 
-        # TODO consider repeated terms inside predicates?
+        # FIXME "missing" constructor needs to be considered, fix when Solidity version is fixed
+        # FIXME "missing" fallback function also needs to be considered
 
-        for index, predicate_string in enumerate(predicates):
-            predicate = parser.parse(predicate_string)
+        # TODO refactor echidna instrumentation:
+        if instrument_for_echidna:
+            function_to_add = 'function echidna_invariant() public returns(bool) {\nreturn '
 
-            # FIXME "missing" constructor needs to be considered, fix when Solidity version is fixed
-            # FIXME "missing" fallback function also needs to be considered
+            for predicate_string in predicates:
+                predicate = parser.parse(predicate_string)
+                function_to_add += '(' + predicate.solidity_repr + ') && '
 
-            functions_to_instrument = self.__get_functions_to_instrument(predicate)
+                functions_to_instrument = self.__get_functions_to_instrument(predicate)
+                self.__instrument_new_variables(predicate, functions_to_instrument, instrument_for_echidna)
 
-            self.__instrument_new_variables(predicate, functions_to_instrument)
+            function_to_add = function_to_add.rsplit(' && ', 1)[0]
+            function_to_add += ';\n}'
+            self.__insert_in_contract(function_to_add)
+        else:
+            for index, predicate_string in enumerate(predicates):
+                predicate = parser.parse(predicate_string)
 
-            assert_string = f'assert({predicate.solidity_repr}); // VERIMAN ASSERT FOR PREDICATE NO. {index + 1}'
-            self.__insert_in_functions(functions_to_instrument, assert_string, self.__insert_at_end_of_functions) # FIXME
+                functions_to_instrument = self.__get_functions_to_instrument(predicate)
+
+                self.__instrument_new_variables(predicate, functions_to_instrument, instrument_for_echidna)
+
+                assert_string = f'assert({predicate.solidity_repr}); // VERIMAN ASSERT FOR PREDICATE NO. {index + 1}'
+                self.__insert_in_functions(functions_to_instrument, assert_string, self.__insert_at_end_of_functions)
 
         contract = '\n'.join(self.contract_lines)
         with open(self.contract_path, 'w') as contract_file:
             contract_file.write(contract)
 
 
-    def __instrument_new_variables(self, predicate, functions_to_instrument):
+    def __instrument_new_variables(self, predicate, functions_to_instrument, instrument_for_echidna):
         if predicate.operator == parser.PREVIOUSLY:
-            initialization_code = f'bool {predicate.solidity_vars[0]} = {predicate.values[0].solidity_repr};'
+            if instrument_for_echidna:
+                initialization_code = f'bool {predicate.solidity_vars[0]};'
+                update_code = f'{predicate.solidity_vars[0]} = {predicate.values[0].solidity_repr};'
 
-            self.__insert_in_functions(functions_to_instrument, initialization_code, self.__insert_at_beginning_of_functions)
+                self.__insert_in_contract(initialization_code)
+                self.__insert_in_functions(functions_to_instrument, update_code, self.__insert_at_beginning_of_functions)
+            else:
+                initialization_code = f'bool {predicate.solidity_vars[0]} = {predicate.values[0].solidity_repr};'
+
+                self.__insert_in_functions(functions_to_instrument, initialization_code, self.__insert_at_beginning_of_functions)
         elif predicate.operator == parser.SINCE:
             q = predicate.solidity_vars[0]
             p_since_q = predicate.solidity_vars[1]
@@ -58,11 +78,11 @@ class Instrumentator:
 }}\n
 {q}={q_repr}||{q};\n'''.format(q=q, p_since_q=p_since_q, q_repr=q_repr, p_repr=p_repr)
 
-            self.__insert_contract_variables(initialization_code)
+            self.__insert_in_contract(initialization_code)
             self.__insert_in_functions(functions_to_instrument, update_code, self.__insert_at_end_of_functions)
 
         for term in predicate.values:
-            self.__instrument_new_variables(term, functions_to_instrument)
+            self.__instrument_new_variables(term, functions_to_instrument, instrument_for_echidna)
 
 
     def __get_functions_to_instrument(self, predicate):
@@ -119,7 +139,7 @@ class Instrumentator:
         return result
 
 
-    def __insert_contract_variables(self, initialization_string):
+    def __insert_in_contract(self, initialization_string):
         in_contract = False
 
         for index, line in enumerate(self.contract_lines):

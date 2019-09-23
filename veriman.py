@@ -54,6 +54,7 @@ class VeriMan:
         self.print = print if self.verbose else lambda *a, **k: None
 
         self.instrument = config.instrumentation.instrument
+        self.instrument_for_echidna = config.instrumentation.for_echidna
         self.predicates = config.instrumentation.predicates
 
         self.verify = config.verification.verify
@@ -93,7 +94,7 @@ class VeriMan:
 
         if self.instrument:
             instrumentator = Instrumentator()
-            instrumentator.instrument(self.contract_path, self.contract_name, self.predicates)
+            instrumentator.instrument(self.contract_path, self.contract_name, self.predicates, self.instrument_for_echidna)
 
 
     def __run_verisol(self):

@@ -50,7 +50,7 @@ VeriMan also allows you to directly use VeriSol and Manticore for the analysis. 
 * Python3
 * [`npm install -g sol-merger`](https://www.npmjs.com/package/sol-merger)
 * `pip install requirements.txt`
-* [VeriSol](https://github.com/microsoft/verisol/tree/e5a245f63ee8ab5d12ff4524f35d52bc56ea825d) if you want to use the verification feature.
+* [VeriSol](https://github.com/microsoft/verisol/tree/0fd7f14956a24ad2b931a9a441f012d53daab609) if you want to use the verification feature.
 
 ## Usage
 
@@ -62,4 +62,3 @@ VeriMan also allows you to directly use VeriSol and Manticore for the analysis. 
 * Handle inheritance
 * Support return values of functions on predicates
 * Support more Solidity constructs (`ether`, `finney`, `wei`, `minutes`, `hours`, `days`, etc.)
-* Generate Echidna invariants

@@ -10,6 +10,7 @@
   },
   "instrumentation": {
     "instrument": true,
+    "for_echidna": false,
     "predicates": [
       "num_calls >= 0",
       "b_called -> a_called"

@@ -10,6 +10,7 @@
   },
   "instrumentation": {
     "instrument": true,
+    "for_echidna": false,
     "predicates": []
   },
   "verification": {

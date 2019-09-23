@@ -1,8 +1,12 @@
 import os
 import shutil
+import subprocess
 from unittest import TestCase
 from veriman import VeriMan
 from tools import read_config
+
+
+INSTRUMENTED_FILE_END = '_toAnalyze_merged.sol'
 
 
 class TestVeriMan(TestCase):
@@ -138,10 +142,38 @@ class TestVeriMan(TestCase):
         self.assertFalse(proof_found)
         self.check_no_error_output(verisol_counterexample) # FIXME
 
-        instrumented_file_name = contract_name + '_toAnalyze_merged.sol'
+        instrumented_file_name = contract_name + INSTRUMENTED_FILE_END
 
         self.assertTrue(os.path.isfile(instrumented_file_name))
 
         # TODO check more
 
         os.remove(instrumented_file_name)
+
+
+    def test_echidna_instrumentation(self):
+        self.inorder_config.instrumentation.predicates = ['previously(b_called) -> c_called', 'b_called -> since(c_called, a_called)']
+        self.inorder_config.instrumentation.for_echidna = True
+        self.inorder_config.verification.verify = False
+
+        proof_found, verisol_counterexample = self.veriman.analyze_contract(self.inorder_config)
+        self.assertFalse(proof_found)
+        self.check_no_error_output(verisol_counterexample)
+
+        instrumented_file_name = 'InOrder' + INSTRUMENTED_FILE_END
+
+        self.assertTrue(os.path.isfile(instrumented_file_name))
+
+        solc_process = subprocess.Popen(['solc ' + instrumented_file_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+        solc_process.wait()
+        solc_process.stdout.close()
+        solc_process.stderr.close()
+        self.assertEqual(solc_process.returncode, 0)
+
+        # TODO check more
+
+        os.remove(instrumented_file_name)
+
+        # Restore test configs:
+        self.inorder_config.instrumentation.for_echidna = False
+        self.inorder_config.verification.verify = True
