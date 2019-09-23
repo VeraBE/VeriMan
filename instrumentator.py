@@ -6,13 +6,6 @@ import collections
 
 class Instrumentator:
 
-    def __init__(self):
-        self.contract_path = ''
-        self.contract_name = ''
-        self.contract_lines = []
-        self.contract_info = None
-
-
     def instrument(self, contract_path, contract_name, predicates):
         self.contract_path = contract_path
         self.contract_name = contract_name
@@ -31,29 +24,29 @@ class Instrumentator:
 
         # TODO consider repeated terms inside predicates?
 
-        for predicate_string in predicates:
+        for index, predicate_string in enumerate(predicates):
             predicate = parser.parse(predicate_string)
 
             # FIXME "missing" constructor needs to be considered, fix when Solidity version is fixed
             # FIXME "missing" fallback function also needs to be considered
 
-            functions_to_instrument = self.get_functions_to_instrument(predicate)
+            functions_to_instrument = self.__get_functions_to_instrument(predicate)
 
-            self.instrument_new_variables(predicate, functions_to_instrument)
+            self.__instrument_new_variables(predicate, functions_to_instrument)
 
-            assert_string = 'assert(' + predicate.solidity_repr + '); // VERIMAN ASSERT'
-            self.insert_in_functions(functions_to_instrument, assert_string, self.insert_at_end_of_functions) # FIXME
+            assert_string = f'assert({predicate.solidity_repr}); // VERIMAN ASSERT FOR PREDICATE NO. {index + 1}'
+            self.__insert_in_functions(functions_to_instrument, assert_string, self.__insert_at_end_of_functions) # FIXME
 
         contract = '\n'.join(self.contract_lines)
         with open(self.contract_path, 'w') as contract_file:
             contract_file.write(contract)
 
 
-    def instrument_new_variables(self, predicate, functions_to_instrument):
+    def __instrument_new_variables(self, predicate, functions_to_instrument):
         if predicate.operator == parser.PREVIOUSLY:
             initialization_code = f'bool {predicate.solidity_vars[0]} = {predicate.values[0].solidity_repr};'
 
-            self.insert_in_functions(functions_to_instrument, initialization_code, self.insert_at_beginning_of_functions)
+            self.__insert_in_functions(functions_to_instrument, initialization_code, self.__insert_at_beginning_of_functions)
         elif predicate.operator == parser.SINCE:
             q = predicate.solidity_vars[0]
             p_since_q = predicate.solidity_vars[1]
@@ -65,19 +58,19 @@ class Instrumentator:
 }}\n
 {q}={q_repr}||{q};\n'''.format(q=q, p_since_q=p_since_q, q_repr=q_repr, p_repr=p_repr)
 
-            self.insert_contract_variables(initialization_code)
-            self.insert_in_functions(functions_to_instrument, update_code, self.insert_at_end_of_functions)
+            self.__insert_contract_variables(initialization_code)
+            self.__insert_in_functions(functions_to_instrument, update_code, self.__insert_at_end_of_functions)
 
         for term in predicate.values:
-            self.instrument_new_variables(term, functions_to_instrument)
+            self.__instrument_new_variables(term, functions_to_instrument)
 
 
-    def get_functions_to_instrument(self, predicate):
+    def __get_functions_to_instrument(self, predicate):
         functions_to_instrument = set()
 
         for variable_name in predicate.related_vars:
 
-            if self.is_solidity_property(variable_name):
+            if self.__is_solidity_property(variable_name):
                 functions_to_instrument = set(self.contract_info.functions_entry_points)
             else:
                 variable = self.contract_info.get_state_variable_from_name(variable_name)
@@ -87,7 +80,7 @@ class Instrumentator:
                     if func.visibility == 'public':
                         functions_to_instrument.add(func)
 
-                functions_to_instrument = functions_to_instrument.union(self.get_public_callers(functions_writing_variable))
+                functions_to_instrument = functions_to_instrument.union(self.__get_public_callers(functions_writing_variable))
 
             if len(functions_to_instrument) == len(self.contract_info.functions_entry_points):
                 break
@@ -101,12 +94,12 @@ class Instrumentator:
         return functions_to_instrument
 
 
-    def is_solidity_property(self, variable_name):
+    def __is_solidity_property(self, variable_name):
         parts = variable_name.split('.')
         return parts[0] in ['block', 'msg', 'tx', 'this', 'now']
 
 
-    def get_public_callers(self, functions):
+    def __get_public_callers(self, functions):
         result = set()
 
         for func in functions:
@@ -126,7 +119,7 @@ class Instrumentator:
         return result
 
 
-    def insert_contract_variables(self, initialization_string):
+    def __insert_contract_variables(self, initialization_string):
         in_contract = False
 
         for index, line in enumerate(self.contract_lines):
@@ -136,7 +129,7 @@ class Instrumentator:
                 break
 
 
-    def insert_in_functions(self, functions, code_string, insert_in_function):
+    def __insert_in_functions(self, functions, code_string, insert_in_function):
         remaining_functions = functions.copy()
         in_function = False
         open_blocks = 0
@@ -187,7 +180,7 @@ class Instrumentator:
                 raise Exception('One or more functions couldn\'t be instrumented')
 
 
-    def insert_at_beginning_of_functions(self, code_string, index, open_blocks, current_function):
+    def __insert_at_beginning_of_functions(self, code_string, index, open_blocks, current_function):
         function_done = False
         line = self.contract_lines[index]
 
@@ -198,7 +191,7 @@ class Instrumentator:
         return function_done
 
 
-    def insert_at_end_of_functions(self, code_string, index, open_blocks, current_function):
+    def __insert_at_end_of_functions(self, code_string, index, open_blocks, current_function):
         function_done = False
         line = self.contract_lines[index]
 

@@ -1,4 +1,4 @@
-contract InOrderHard {
+contract InOrder {
     bool public a_called = false;
     bool public b_called = false;
     bool public c_called = false;

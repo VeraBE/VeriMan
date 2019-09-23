@@ -1,0 +1,33 @@
+{
+  "contract": {
+    "name": "", // If "" then the file name will be used
+    "path": "",
+    "args": "()"
+  },
+  "output": {
+    "report_invalid": false,
+    "verbose": false,
+    "really_verbose": false,
+    "cleanup": true
+  },
+  "instrumentation": {
+    "instrument": true,
+    "predicates": []
+  },
+  "verification": {
+    "verify": true,
+    "verisol": {
+      "path": "", // Or your VeriSol command if you installed it globally
+      "txs_bound": 5 // Max counterexample length
+    },
+    "manticore": {
+      "loops": 10, // Affects only if loop_delimiter
+      "procs": 3,  // For multithreading
+      "user_initial_balance": 100,
+      "avoid_constant_txs": false, // Avoid all TXs that have no effect on the storage
+      "loop_delimiter": false,
+      "user_accounts": 2,
+      "fallback_data_size": 320
+    }
+  }
+}
