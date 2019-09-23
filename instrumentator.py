@@ -4,6 +4,12 @@ import parser
 import collections
 
 
+SLITHER_UNDECLARED_CONSTRUCTOR_NAME = 'slitherConstructorVariables'
+
+
+# This whole class is a prototype, a proper parser should be used
+
+
 class Instrumentator:
 
     def instrument(self, contract_path, contract_name, predicates, instrument_for_echidna):
@@ -22,8 +28,7 @@ class Instrumentator:
 
         parser = Parser()
 
-        # FIXME "missing" constructor needs to be considered, fix when Solidity version is fixed
-        # FIXME "missing" fallback function also needs to be considered
+        self.__add_constructor_if_missing()
 
         # TODO refactor echidna instrumentation:
         if instrument_for_echidna:
@@ -53,6 +58,44 @@ class Instrumentator:
         contract = '\n'.join(self.contract_lines)
         with open(self.contract_path, 'w') as contract_file:
             contract_file.write(contract)
+
+
+    def __add_constructor_if_missing(self):
+        pragma_found = False
+        pragma = ''
+        inside_contract = False
+        first_line_of_contract = 0
+        constructor_found = False
+
+        for index, line in enumerate(self.contract_lines):
+            line_no_spaces = line.replace(' ', '')
+
+            if not pragma_found and 'pragmasolidity' in line_no_spaces:
+                pragma_found = True
+                pragma = line_no_spaces.split('pragmasolidity')[1].split(';')[0]
+
+            if line.lstrip().startswith('contract '):
+                was_inside_contract = inside_contract
+                inside_contract = line_no_spaces.startswith('contract' + self.contract_name + '{')
+                if (inside_contract):
+                    first_line_of_contract = index
+                elif was_inside_contract:
+                    break
+
+            if inside_contract and line_no_spaces.startswith('constructor(') or line_no_spaces.startswith('function' + self.contract_name + '('):
+                constructor_found = True
+                break
+
+        if pragma_found and not constructor_found:
+            if pragma.startswith('^0.4'):
+                self.contract_lines.insert(first_line_of_contract + 1, f'function {self.contract_name}() public {{')
+            elif pragma.startswith('^0.5'):
+                self.contract_lines.insert(first_line_of_contract + 1, f'constructor() public {{')
+            else:
+                # TODO handle cases like "pragma solidity >=0.4.0 <0.6.0;"
+                raise Exception("Unknown pragma in contract")
+
+            self.contract_lines.insert(first_line_of_contract + 2, '}')
 
 
     def __instrument_new_variables(self, predicate, functions_to_instrument, instrument_for_echidna):
@@ -104,6 +147,15 @@ class Instrumentator:
 
             if len(functions_to_instrument) == len(self.contract_info.functions_entry_points):
                 break
+
+        # The initial state also needs to be checked:
+        if self.contract_info.constructor is not None:
+            functions_to_instrument.add(self.contract_info.constructor)
+        else:
+            for func in self.contract_info.functions:
+                if func.name == SLITHER_UNDECLARED_CONSTRUCTOR_NAME:
+                    functions_to_instrument.add(func)
+                    break
 
         # We can thought of all no-state-changing functions as equivalent:
         for func in self.contract_info.functions:
@@ -171,7 +223,7 @@ class Instrumentator:
                     for func in remaining_functions:
                         if line_no_spaces.startswith('function' + func.name + '(') \
                                 or (func.name == 'fallback' and line_no_spaces.startswith('function()'))\
-                                or (func.name == 'constructor' and (line_no_spaces.startswith('constructor(') or line_no_spaces.startswith('function' + self.contract_name + '('))):
+                                or ((func.name == 'constructor' or func.name == SLITHER_UNDECLARED_CONSTRUCTOR_NAME) and (line_no_spaces.startswith('constructor(') or line_no_spaces.startswith('function' + self.contract_name + '('))):
                             found = True
                             remaining_functions.remove(func)
                             current_function = func
@@ -186,25 +238,15 @@ class Instrumentator:
                 else:
                     in_function = not function_done
 
-        if len(remaining_functions) > 0:
-            # FIXME temporal:
-
-            not_constructor = None
-
-            for func in remaining_functions:
-                if func.name not in ['slitherConstructorVariables', 'fallback', 'constructor']:
-                    not_constructor = func
-                    break
-
-            if not_constructor is not None:
-                raise Exception('One or more functions couldn\'t be instrumented')
+        if len(remaining_functions) > 0 and not (len(remaining_functions) == 1 and remaining_functions.pop().name == SLITHER_UNDECLARED_CONSTRUCTOR_NAME):
+            raise Exception('One or more functions couldn\'t be instrumented')
 
 
     def __insert_at_beginning_of_functions(self, code_string, index, open_blocks, current_function):
         function_done = False
         line = self.contract_lines[index]
 
-        if ('function ' in line and '{' in line) or (open_blocks == 0 and '{' in line):
+        if open_blocks == 2 and '{' in line:
             self.contract_lines[index] = line.replace('{', '{\n' + code_string)
             function_done = True
 
