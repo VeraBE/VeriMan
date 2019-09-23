@@ -76,7 +76,7 @@ class Instrumentator:
 
             if line.lstrip().startswith('contract '):
                 was_inside_contract = inside_contract
-                inside_contract = line_no_spaces.startswith('contract' + self.contract_name + '{')
+                inside_contract = line_no_spaces.startswith('contract' + self.contract_name)
                 if (inside_contract):
                     first_line_of_contract = index
                 elif was_inside_contract:
@@ -149,17 +149,24 @@ class Instrumentator:
                 break
 
         # The initial state also needs to be checked:
-        if self.contract_info.constructor is not None:
-            functions_to_instrument.add(self.contract_info.constructor)
-        else:
-            for func in self.contract_info.functions:
-                if func.name == SLITHER_UNDECLARED_CONSTRUCTOR_NAME:
-                    functions_to_instrument.add(func)
-                    break
+        is_constructor_considered = False
+        for func in functions_to_instrument:
+            if func.name == 'constructor': # FIXME temporal, issue with Slither
+                is_constructor_considered = True
+                break
+
+        if not is_constructor_considered:
+            if self.contract_info.constructor is not None:
+                functions_to_instrument.add(self.contract_info.constructor)
+            else:
+                for func in self.contract_info.functions:
+                    if func.name == SLITHER_UNDECLARED_CONSTRUCTOR_NAME:
+                        functions_to_instrument.add(func)
+                        break
 
         # We can thought of all no-state-changing functions as equivalent:
         for func in self.contract_info.functions:
-            if not func in functions_to_instrument:
+            if not func in functions_to_instrument and func.name != 'constructor': # FIXME temporal, issue with Slither
                 functions_to_instrument.add(func)
                 break
 
@@ -195,48 +202,57 @@ class Instrumentator:
         in_contract = False
 
         for index, line in enumerate(self.contract_lines):
-            in_contract = in_contract or 'contract ' in line
-            if (in_contract and '{' in line) or ('contract ' and '{' in line):
+            in_contract = in_contract or 'contract ' + self.contract_name in line
+            if in_contract and '{' in line:
                 self.contract_lines[index] = line.replace('{', '{\n' + initialization_string)
                 break
 
 
     def __insert_in_functions(self, functions, code_string, insert_in_function):
         remaining_functions = functions.copy()
+        in_contract = False
         in_function = False
-        open_blocks = 0
         current_function = None
+        open_blocks = 0
 
         for index, line in enumerate(self.contract_lines):
+            if line.lstrip().startswith('contract '):
+                line_no_spaces = line.replace(' ', '')
+                was_inside_contract = in_contract
+                in_contract = line_no_spaces.startswith('contract' + self.contract_name)
+                if not in_contract and was_inside_contract:
+                    break
+
             open_blocks = open_blocks + line.count('{') - line.count('}')
 
-            if open_blocks <= 2:
-                # TODO improve:
+            if in_contract:
+                if open_blocks <= 2:
+                    # TODO improve:
 
-                line_stripped = line.lstrip()
-                line_no_spaces = line.replace(' ', '')
+                    line_stripped = line.lstrip()
+                    line_no_spaces = line.replace(' ', '')
 
-                if line_stripped.startswith('function ') \
-                        or line_no_spaces.startswith('function()') \
-                        or line_no_spaces.startswith('constructor('):
-                    found = False
-                    for func in remaining_functions:
-                        if line_no_spaces.startswith('function' + func.name + '(') \
-                                or (func.name == 'fallback' and line_no_spaces.startswith('function()'))\
-                                or ((func.name == 'constructor' or func.name == SLITHER_UNDECLARED_CONSTRUCTOR_NAME) and (line_no_spaces.startswith('constructor(') or line_no_spaces.startswith('function' + self.contract_name + '('))):
-                            found = True
-                            remaining_functions.remove(func)
-                            current_function = func
-                            break
+                    if line_stripped.startswith('function ') \
+                            or line_no_spaces.startswith('function()') \
+                            or line_no_spaces.startswith('constructor('):
+                        found = False
+                        for func in remaining_functions:
+                            if line_no_spaces.startswith('function' + func.name + '(') \
+                                    or (func.name == 'fallback' and line_no_spaces.startswith('function()'))\
+                                    or ((func.name == 'constructor' or func.name == SLITHER_UNDECLARED_CONSTRUCTOR_NAME) and (line_no_spaces.startswith('constructor(') or line_no_spaces.startswith('function' + self.contract_name + '('))):
+                                found = True
+                                remaining_functions.remove(func)
+                                current_function = func
+                                break
 
-                    in_function = found
+                        in_function = found
 
-            if in_function:
-                function_done = insert_in_function(code_string, index, open_blocks, current_function)
-                if function_done and len(remaining_functions) == 0:
-                    break
-                else:
-                    in_function = not function_done
+                if in_function:
+                    function_done = insert_in_function(code_string, index, open_blocks, current_function)
+                    if function_done and len(remaining_functions) == 0:
+                        break
+                    else:
+                        in_function = not function_done
 
         if len(remaining_functions) > 0 and not (len(remaining_functions) == 1 and remaining_functions.pop().name == SLITHER_UNDECLARED_CONSTRUCTOR_NAME):
             raise Exception('One or more functions couldn\'t be instrumented')
