@@ -14,12 +14,13 @@
     "predicates": []
   },
   "verification": {
-    "verify": true,
     "verisol": {
+      "use": true,
       "path": "", // Or your VeriSol command if you installed it globally
       "txs_bound": 5 // Max counterexample length
     },
     "manticore": {
+      "use": true,
       "procs": 3,  // For multithreading
       "avoid_constant_txs": true, // Avoid all TXs that have no effect on the storage
       "loop_delimiter": false,

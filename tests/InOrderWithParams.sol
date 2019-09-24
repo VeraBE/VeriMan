@@ -1,3 +1,5 @@
+pragma solidity ^0.5.10;
+
 contract InOrderWithParams {
     bool public a_called = false;
     bool public b_called = false;

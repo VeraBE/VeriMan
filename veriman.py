@@ -1,16 +1,25 @@
 import os
 import time
 import subprocess
+import commentjson
+from types import SimpleNamespace as Namespace
 from datetime import datetime
-from manticore.ethereum import ManticoreEVM, DetectInvalid, ABI
+from manticore.ethereum import ManticoreEVM
 from manticore.utils import config as manticoreConfig
-from manticore.ethereum.plugins import LoopDepthLimiter, FilterFunctions, VerboseTraceStdout
+from manticore.ethereum.plugins import LoopDepthLimiter, FilterFunctions
 from shutil import copyfile
 from instrumentator import Instrumentator
 
 
 
 class VeriMan:
+
+    @staticmethod
+    def parse_config(file_name):
+        with open(file_name) as config_file:
+            config_file_string = config_file.read()
+            return commentjson.loads(config_file_string, object_hook=lambda d: Namespace(**d))
+
 
     def analyze_contract(self, config):
         self.__read_config(config)
@@ -24,13 +33,17 @@ class VeriMan:
 
         self.__pre_process_contract()
 
-        if self.verify:
+        if self.use_verisol:
             start_time = time.time()
 
             proof_found, verisol_counterexample = self.__run_verisol()
 
-            if len(verisol_counterexample) > 0:
-                self.__run_manticore(verisol_counterexample)
+            trace_for_manticore = list(verisol_counterexample)
+            if len(trace_for_manticore) > 0:
+                trace_for_manticore.remove('Constructor')
+
+            if self.use_manticore and len(trace_for_manticore) > 0:
+                self.__run_manticore(trace_for_manticore)
 
             end_time = time.time()
 
@@ -57,18 +70,18 @@ class VeriMan:
         self.instrument_for_echidna = config.instrumentation.for_echidna
         self.predicates = config.instrumentation.predicates
 
-        self.verify = config.verification.verify
-
+        self.use_verisol = config.verification.verisol.use
         self.verisol_path = config.verification.verisol.path
         self.tx_limit = config.verification.verisol.txs_bound
 
+        self.use_manticore = config.verification.manticore.use
         self.loop_limit = config.verification.manticore.loops
         self.procs = config.verification.manticore.procs
         self.user_initial_balance = config.verification.manticore.user_initial_balance
         self.avoid_constant_txs = config.verification.manticore.avoid_constant_txs
         self.force_loop_limit = config.verification.manticore.loop_delimiter
         self.amount_user_accounts = config.verification.manticore.user_accounts
-        if self.verify and self.amount_user_accounts < 1:
+        if self.use_manticore and self.amount_user_accounts < 1:
             raise Exception('At least one user account has to be created')
         self.fallback_data_size = config.verification.manticore.fallback_data_size
 
@@ -82,14 +95,12 @@ class VeriMan:
         self.files_to_cleanup.append(modified_contract_path)
 
         # Solidity and VeriSol don't support imports, plus sol-merger removes comments:
-        os.system("sed -i '1ipragma solidity ^0.5;' " + modified_contract_path) # FIXME, temporal because of Manticore/Verisol version issues
         solmerger_process = subprocess.Popen([f'sol-merger {modified_contract_path}'], stdout=subprocess.PIPE, shell=True)
         solmerger_process.wait()
         solmerger_process.stdout.close()
         self.contract_path = modified_contract_path.replace('.sol', '_merged.sol')
-        os.system("sed -i '1d' " + self.contract_path) # FIXME, temporal because of Manticore/Verisol version issues
 
-        if not (self.instrument and not self.verify):
+        if not (self.instrument and not self.use_verisol):
             self.files_to_cleanup.append(self.contract_path)
 
         if self.instrument:
@@ -120,8 +131,8 @@ class VeriMan:
 
             for part in trace_parts:
                 call_found = part.split(' ', 1)[0]
-                if call_found not in ['Constructor']:
-                    counterexample.append(call_found)
+                counterexample.append(call_found)
+            self.print('[!] Counterexample found:', counterexample)
         elif 'Did not find a proof' in verisol_output:
             self.files_to_cleanup += ['__SolToBoogieTest_out.bpl', 'boogie.txt', 'corral.txt']
             self.print('[!] Contract cannot be proven, but a counterexample was not found, successful up to', str(self.tx_limit), 'transactions')

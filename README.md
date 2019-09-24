@@ -43,9 +43,9 @@ You could define as temporal properties:
 transaction sequence"
 * `always(num_calls >= 0)`, with the interpretation of `always` you can imagine :relaxed:
 
-VeriMan also allows you to directly use VeriSol and Manticore for the analysis. It runs the instrumented contract on VeriSol, if a counterexample is found then it executes it on Manticore to get a concrete transaction sequence. Right now there's a compatibility issue for this feature because VeriSol supports Solidity 0.5.10 and Manticore requires a version lower than 0.5, so your contract has to be compatible with both to run this analysis.
+VeriMan also allows you to directly use VeriSol and Manticore for the analysis: it runs the instrumented contract on VeriSol, if a counterexample is found, and Manticore usage is enabled, then the trace will be executed with Manticore to get a *blockchain-ready* transaction sequence.
 
-Echidna is also supported, if you set `for_echidna` to `true` in your configuration file, VeriMan will generate a contract ready to be fuzzed with it.
+Echidna is supported as well, if you set `for_echidna` to `true` in your configuration file, VeriMan will generate a contract ready to be fuzzed with it.
 
 ## Requirements
  

@@ -3,7 +3,6 @@ import shutil
 import subprocess
 from unittest import TestCase
 from veriman import VeriMan
-from tools import read_config
 
 
 INSTRUMENTED_FILE_END = '_toAnalyze_merged.sol'
@@ -14,7 +13,7 @@ class TestVeriMan(TestCase):
     @classmethod
     def setUpClass(cls):
         cls.veriman = VeriMan()
-        cls.inorder_config = TestVeriMan.read_test_config()
+        cls.inorder_config = TestVeriMan.get_test_config()
         cls.inorder_config.contract.path = os.path.dirname(os.path.abspath(__file__)) + '/InOrder.sol'
 
 
@@ -26,9 +25,9 @@ class TestVeriMan(TestCase):
 
 
     @staticmethod
-    def read_test_config():
-        test_config = read_config('config_tests.json')
-        user_config = read_config('../config.json')
+    def get_test_config():
+        test_config = VeriMan.parse_config('config_tests.json')
+        user_config = VeriMan.parse_config('../config.json')
         test_config.verification.verisol.path = user_config.verification.verisol.path
         return test_config
 
@@ -42,10 +41,18 @@ class TestVeriMan(TestCase):
         self.assertEqual(len(verisol_counterexample), 0)
 
 
+    def check_contract_compiles(self, file_name):
+        solc_process = subprocess.Popen(['solc ' + file_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+        solc_process.wait()
+        solc_process.stdout.close()
+        solc_process.stderr.close()
+        self.assertEqual(solc_process.returncode, 0)
+
+
     def test_integer_comparison_false(self):
         self.inorder_config.instrumentation.predicates = ['num_calls > 0']
         proof_found, verisol_counterexample = self.veriman.analyze_contract(self.inorder_config)
-        self.check_error_output(proof_found, verisol_counterexample, ['a', 'b', 'b'])
+        self.check_error_output(proof_found, verisol_counterexample, ['Constructor'])
 
 
     def test_integer_comparison_true(self):
@@ -56,9 +63,9 @@ class TestVeriMan(TestCase):
 
 
     def test_implies_false(self):
-        self.inorder_config.instrumentation.predicates = ['a_called -> b_called']
+        self.inorder_config.instrumentation.predicates = ['a_called -> num_calls > 0']
         proof_found, verisol_counterexample = self.veriman.analyze_contract(self.inorder_config)
-        self.check_error_output(proof_found, verisol_counterexample, ['a'])
+        self.check_error_output(proof_found, verisol_counterexample, ['Constructor', 'a', 'b', 'b'])
 
 
     def test_implies_true(self):
@@ -71,7 +78,7 @@ class TestVeriMan(TestCase):
     def test_previously_false(self):
         self.inorder_config.instrumentation.predicates = ['previously(!a_called) && a_called']
         proof_found, verisol_counterexample = self.veriman.analyze_contract(self.inorder_config)
-        self.check_error_output(proof_found, verisol_counterexample, ['a', 'a'])
+        self.check_error_output(proof_found, verisol_counterexample, ['Constructor'])
 
 
     def test_previously_true(self):
@@ -84,11 +91,11 @@ class TestVeriMan(TestCase):
     def test_since_false(self):
         self.inorder_config.instrumentation.predicates = ['since(num_calls > 0, a_called)']
         proof_found, verisol_counterexample = self.veriman.analyze_contract(self.inorder_config)
-        self.check_error_output(proof_found, verisol_counterexample, ['a', 'b', 'b'])
+        self.check_error_output(proof_found, verisol_counterexample, ['Constructor'])
 
 
     def test_since_true(self):
-        self.inorder_config.instrumentation.predicates = ['since(num_calls >= 0, a_called)']
+        self.inorder_config.instrumentation.predicates = ['c_called -> since(num_calls >= 0, a_called)']
         proof_found, verisol_counterexample = self.veriman.analyze_contract(self.inorder_config)
         self.assertFalse(proof_found)
         self.check_no_error_output(verisol_counterexample)
@@ -97,7 +104,7 @@ class TestVeriMan(TestCase):
     def test_once_false(self):
         self.inorder_config.instrumentation.predicates = ['once(num_calls == 2)']
         proof_found, verisol_counterexample = self.veriman.analyze_contract(self.inorder_config)
-        self.check_error_output(proof_found, verisol_counterexample, ['a'])
+        self.check_error_output(proof_found, verisol_counterexample, ['Constructor'])
 
 
     def test_once_true(self):
@@ -110,7 +117,7 @@ class TestVeriMan(TestCase):
     def test_always_false(self):
         self.inorder_config.instrumentation.predicates = ['always(num_calls < 3)']
         proof_found, verisol_counterexample = self.veriman.analyze_contract(self.inorder_config)
-        self.check_error_output(proof_found, verisol_counterexample, ['a', 'a', 'a'])
+        self.check_error_output(proof_found, verisol_counterexample, ['Constructor', 'a', 'a', 'a'])
 
 
     def test_always_true(self):
@@ -121,21 +128,21 @@ class TestVeriMan(TestCase):
 
 
     def test_parameters(self):
-        params_config = TestVeriMan.read_test_config()
+        params_config = TestVeriMan.get_test_config()
         params_config.contract.path = os.path.dirname(os.path.abspath(__file__)) + '/InOrderWithParams.sol'
         params_config.instrumentation.instrument = False
 
         proof_found, verisol_counterexample = self.veriman.analyze_contract(params_config)
 
-        self.check_error_output(proof_found, ['a', 'b', 'c'], verisol_counterexample)
+        self.check_error_output(proof_found, ['Constructor', 'a', 'b', 'c'], verisol_counterexample)
 
 
     def test_instrumentation_only(self):
         contract_name = 'PaymentSplitter'
-        instrumentation_only_config = TestVeriMan.read_test_config()
+        instrumentation_only_config = TestVeriMan.get_test_config()
         instrumentation_only_config.contract.path = os.path.dirname(os.path.abspath(__file__)) + '/' + contract_name + '.sol'
-        instrumentation_only_config.instrumentation.predicates = ['_totalReleased <= _totalShares', 'msg.value < 10']
-        instrumentation_only_config.verification.verify = False
+        instrumentation_only_config.instrumentation.predicates = ['_totalReleased <= _totalShares', 'block.number > 10']
+        instrumentation_only_config.verification.verisol.use = False
 
         proof_found, verisol_counterexample = self.veriman.analyze_contract(instrumentation_only_config)
 
@@ -144,9 +151,7 @@ class TestVeriMan(TestCase):
 
         instrumented_file_name = contract_name + INSTRUMENTED_FILE_END
 
-        self.assertTrue(os.path.isfile(instrumented_file_name))
-
-        # TODO check more
+        self.check_contract_compiles(instrumented_file_name) # TODO check more
 
         os.remove(instrumented_file_name)
 
@@ -154,26 +159,18 @@ class TestVeriMan(TestCase):
     def test_echidna_instrumentation(self):
         self.inorder_config.instrumentation.predicates = ['previously(b_called) -> c_called', 'b_called -> since(c_called, a_called)']
         self.inorder_config.instrumentation.for_echidna = True
-        self.inorder_config.verification.verify = False
+        self.inorder_config.verification.verisol.use = False
 
         proof_found, verisol_counterexample = self.veriman.analyze_contract(self.inorder_config)
         self.assertFalse(proof_found)
         self.check_no_error_output(verisol_counterexample)
 
-        instrumented_file_name = 'InOrder' + INSTRUMENTED_FILE_END
-
-        self.assertTrue(os.path.isfile(instrumented_file_name))
-
-        solc_process = subprocess.Popen(['solc ' + instrumented_file_name], stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
-        solc_process.wait()
-        solc_process.stdout.close()
-        solc_process.stderr.close()
-        self.assertEqual(solc_process.returncode, 0)
-
-        # TODO check more
-
-        os.remove(instrumented_file_name)
-
         # Restore test configs:
         self.inorder_config.instrumentation.for_echidna = False
-        self.inorder_config.verification.verify = True
+        self.inorder_config.verification.verisol.use = True
+
+        instrumented_file_name = 'InOrder' + INSTRUMENTED_FILE_END
+
+        self.check_contract_compiles(instrumented_file_name) # TODO check more
+
+        os.remove(instrumented_file_name)
