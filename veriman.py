@@ -31,26 +31,33 @@ class VeriMan:
         if self.instrument:
             self.print('[-] Will instrument to check:', self.predicates)
 
-        self.__pre_process_contract()
+        try:
+            self.__pre_process_contract()
 
-        if self.use_verisol:
-            start_time = time.time()
+            if self.use_verisol:
+                start_time = time.time()
 
-            proof_found, verisol_counterexample = self.__run_verisol()
+                proof_found, verisol_counterexample = self.__run_verisol()
 
-            trace_for_manticore = list(verisol_counterexample)
-            if len(trace_for_manticore) > 0:
-                trace_for_manticore.remove('Constructor')
+                trace_for_manticore = list(verisol_counterexample)
+                if len(trace_for_manticore) > 0:
+                    trace_for_manticore.remove('Constructor')
 
-            if self.use_manticore and len(trace_for_manticore) > 0:
-                self.__run_manticore(trace_for_manticore)
+                if self.use_manticore and len(trace_for_manticore) > 0:
+                    self.__run_manticore(trace_for_manticore)
 
-            end_time = time.time()
+                end_time = time.time()
 
-            self.print('[-] Time elapsed:', end_time - start_time, 'seconds')
+                self.print('[-] Time elapsed:', end_time - start_time, 'seconds')
 
-        if self.does_cleanup:
-            self.__cleanup()
+            if self.does_cleanup:
+                self.__cleanup()
+
+        except Exception as e:
+            if self.does_cleanup:
+                self.__cleanup()
+
+            raise(e)
 
         return proof_found, verisol_counterexample
 

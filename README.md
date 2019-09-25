@@ -4,7 +4,7 @@ With VeriMan you can define temporal properties using your contract's variables,
 
 For example, given the following contract:
 
-```
+```Solidity
 contract Example {
     bool public a_called = false;
     bool public b_called = false;
@@ -49,18 +49,12 @@ Echidna is supported as well, if you set `for_echidna` to `true` in your configu
 
 ## Requirements
  
-* Python3
-* [`npm install -g sol-merger`](https://www.npmjs.com/package/sol-merger)
+* Python 3
+* `npm install -g sol-merger`
 * `pip install -r requirements.txt`
 * [VeriSol](https://github.com/microsoft/verisol/tree/0fd7f14956a24ad2b931a9a441f012d53daab609) if you want to use the verification feature.
 
 ## Usage
 
 * Copy `config_example.json` into `config.json` and update values, you can define the properties there.
-* `python3 client.py`
-
-## Big TODOs
-
-* Handle inheritance
-* Support return values of functions on predicates
-* Support more Solidity constructs (`ether`, `finney`, `wei`, `minutes`, `hours`, `days`, etc.)
+* `python client.py`

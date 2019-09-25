@@ -23,49 +23,46 @@ class Instrumentator:
 
         with open(self.contract_path) as contract_file:
             contract = contract_file.read()
-        contract = contract.replace('}', '\n}') # FIXME
+        contract = contract.replace('}', '\n}')
         self.contract_lines = contract.split('\n')
+
+        self.__pre_process_contract()
 
         parser = Parser()
 
-        self.__add_constructor_if_missing()
+        echidna_function = ''
 
-        # TODO refactor echidna instrumentation:
-        if instrument_for_echidna:
-            function_to_add = 'function echidna_invariant() public returns(bool) {\nreturn '
+        for index, predicate_string in enumerate(predicates):
+            predicate = parser.parse(predicate_string)
 
-            for predicate_string in predicates:
-                predicate = parser.parse(predicate_string)
-                function_to_add += '(' + predicate.solidity_repr + ')\n&& '
+            functions_to_instrument = self.__get_functions_to_instrument(predicate)
 
-                functions_to_instrument = self.__get_functions_to_instrument(predicate)
-                self.__instrument_new_variables(predicate, functions_to_instrument, instrument_for_echidna)
+            self.__instrument_new_variables(predicate, functions_to_instrument, instrument_for_echidna)
 
-            function_to_add = function_to_add.rsplit('\n&& ', 1)[0]
-            function_to_add += ';\n}'
-            self.__insert_in_contract(function_to_add)
-        else:
-            for index, predicate_string in enumerate(predicates):
-                predicate = parser.parse(predicate_string)
-
-                functions_to_instrument = self.__get_functions_to_instrument(predicate)
-
-                self.__instrument_new_variables(predicate, functions_to_instrument, instrument_for_echidna)
-
+            if instrument_for_echidna:
+                echidna_function += '(' + predicate.solidity_repr + ')\n&& '
+            else:
                 assert_string = f'assert({predicate.solidity_repr}); // VERIMAN ASSERT FOR PREDICATE NO. {index + 1}'
                 self.__insert_in_functions(functions_to_instrument, assert_string, self.__insert_at_end_of_functions)
+
+        if instrument_for_echidna:
+            echidna_function = 'function echidna_invariant() public returns(bool) {\nreturn ' \
+                               + echidna_function.rsplit('\n&& ', 1)[0]\
+                               + ';\n}'
+            self.__insert_in_contract(echidna_function)
 
         contract = '\n'.join(self.contract_lines)
         with open(self.contract_path, 'w') as contract_file:
             contract_file.write(contract)
 
 
-    def __add_constructor_if_missing(self):
-        pragma_found = False
+    def __pre_process_contract(self):
         pragma = ''
+        pragma_found = False
         inside_contract = False
-        first_line_of_contract = 0
         constructor_found = False
+        self.first_line_of_contract = 0
+        self.last_line_of_contract = len(self.contract_lines)
 
         for index, line in enumerate(self.contract_lines):
             line_no_spaces = line.replace(' ', '')
@@ -77,37 +74,83 @@ class Instrumentator:
             if line.lstrip().startswith('contract '):
                 was_inside_contract = inside_contract
                 inside_contract = line_no_spaces.startswith('contract' + self.contract_name)
-                if (inside_contract):
-                    first_line_of_contract = index
+
+                if inside_contract:
+                    for i in range(index, len(self.contract_lines) - 1):
+                        contract_line = self.contract_lines[i]
+                        if '{' in contract_line:
+                            self.first_line_of_contract = i # TODO test
+                            break
                 elif was_inside_contract:
+                    self.last_line_of_contract = index # TODO test
                     break
 
-            if inside_contract and line_no_spaces.startswith('constructor(') or line_no_spaces.startswith('function' + self.contract_name + '('):
+            if inside_contract and (line_no_spaces.startswith('constructor(') or
+                                    line_no_spaces.startswith('function' + self.contract_name + '(')):
                 constructor_found = True
                 break
 
-        if pragma_found and not constructor_found:
+        if not constructor_found:
             if pragma.startswith('^0.4'):
-                self.contract_lines.insert(first_line_of_contract + 1, f'function {self.contract_name}() public {{')
+                constructor_string = f'function {self.contract_name}() public {{\n}}\n'
             elif pragma.startswith('^0.5'):
-                self.contract_lines.insert(first_line_of_contract + 1, f'constructor() public {{')
+                constructor_string = f'constructor() public {{\n}}\n'
             else:
                 # TODO handle cases like "pragma solidity >=0.4.0 <0.6.0;"
                 raise Exception("Unknown pragma in contract")
 
-            self.contract_lines.insert(first_line_of_contract + 2, '}')
+            self.__insert_in_contract(constructor_string)
+
+        self.__add_inherited_functions()
+
+
+    def __should_be_instrumented(self, func):
+        return func.visibility == 'public' and not func.is_shadowed
+
+
+    def __add_inherited_functions(self):
+        for func in self.contract_info.functions_inherited:
+
+            if self.__should_be_instrumented(func):
+                function_declaration_start = 'function ' + func.name
+                new_function = ''
+
+                in_desired_contract = False
+                in_desired_function = False
+                for index, line in enumerate(self.contract_lines):
+                    in_desired_contract = in_desired_contract or 'contract ' + func.contract_declarer.name in line
+                    in_desired_function = in_desired_contract and (in_desired_function or function_declaration_start in line)
+                    if in_desired_contract and in_desired_function:
+                        new_function += line
+                        if '{' in line:
+                            break
+
+                new_function = function_declaration_start + new_function.split(function_declaration_start, 1)[1]
+                new_function = new_function.split('{', 1)[0] + '{\n'
+
+                if func.return_type is not None:
+                    new_function += 'return '
+
+                new_function += f'super.{func.name}('
+
+                for param in func.parameters:
+                    new_function += param.name + ','
+
+                new_function = new_function.rsplit(',', 1)[0] + ');\n}\n'
+
+                self.__insert_in_contract(new_function)
 
 
     def __instrument_new_variables(self, predicate, functions_to_instrument, instrument_for_echidna):
         if predicate.operator == parser.PREVIOUSLY:
             if instrument_for_echidna:
                 initialization_code = f'bool {predicate.solidity_vars[0]};'
-                update_code = f'{predicate.solidity_vars[0]} = {predicate.values[0].solidity_repr};'
+                update_code = f'{predicate.solidity_vars[0]}={predicate.values[0].solidity_repr};'
 
                 self.__insert_in_contract(initialization_code)
                 self.__insert_in_functions(functions_to_instrument, update_code, self.__insert_at_beginning_of_functions)
             else:
-                initialization_code = f'bool {predicate.solidity_vars[0]} = {predicate.values[0].solidity_repr};'
+                initialization_code = f'bool {predicate.solidity_vars[0]}={predicate.values[0].solidity_repr};'
 
                 self.__insert_in_functions(functions_to_instrument, initialization_code, self.__insert_at_beginning_of_functions)
         elif predicate.operator == parser.SINCE:
@@ -140,7 +183,7 @@ class Instrumentator:
                 functions_writing_variable = self.contract_info.get_functions_writing_to_variable(variable)
 
                 for func in functions_writing_variable:
-                    if func.visibility == 'public':
+                    if self.__should_be_instrumented(func):
                         functions_to_instrument.add(func)
 
                 functions_to_instrument = functions_to_instrument.union(self.__get_public_callers(functions_writing_variable))
@@ -166,7 +209,7 @@ class Instrumentator:
 
         # We can thought of all no-state-changing functions as equivalent:
         for func in self.contract_info.functions:
-            if not func in functions_to_instrument and func.name != 'constructor': # FIXME temporal, issue with Slither
+            if not func in functions_to_instrument and self.__should_be_instrumented(func) and func.name != 'constructor': # FIXME temporal, issue with Slither
                 functions_to_instrument.add(func)
                 break
 
@@ -192,69 +235,72 @@ class Instrumentator:
                         queue.append(neighbour)
                         callers.add(neighbour)
 
-                        if neighbour.visibility == 'public':
+                        if self.__should_be_instrumented(neighbour):
                             result.add(neighbour)
 
         return result
 
 
-    def __insert_in_contract(self, initialization_string):
-        in_contract = False
-
-        for index, line in enumerate(self.contract_lines):
-            in_contract = in_contract or 'contract ' + self.contract_name in line
-            if in_contract and '{' in line:
-                self.contract_lines[index] = line.replace('{', '{\n' + initialization_string)
-                break
+    def __insert_in_contract(self, code_to_insert):
+        self.contract_lines.insert(self.first_line_of_contract + 1, code_to_insert)
+        self.last_line_of_contract += 1
 
 
     def __insert_in_functions(self, functions, code_string, insert_in_function):
-        remaining_functions = functions.copy()
-        in_contract = False
+        remaining_functions = list(functions)
+        open_blocks = 0
         in_function = False
         current_function = None
-        open_blocks = 0
 
-        for index, line in enumerate(self.contract_lines):
-            if line.lstrip().startswith('contract '):
-                line_no_spaces = line.replace(' ', '')
-                was_inside_contract = in_contract
-                in_contract = line_no_spaces.startswith('contract' + self.contract_name)
-                if not in_contract and was_inside_contract:
-                    break
+        constructors_in_list = list(filter(lambda func: func.name == 'constructor' or
+                                                        func.name == SLITHER_UNDECLARED_CONSTRUCTOR_NAME, remaining_functions))
+        fallbacks_in_list = list(filter(lambda func: func.name == 'fallback', remaining_functions))
 
+        if len(constructors_in_list) > 1 or len(fallbacks_in_list) > 1:
+            raise Exception('Invalid set of functions to instrument')
+
+        for index in range(self.first_line_of_contract, self.last_line_of_contract):
+            line = self.contract_lines[index]
             open_blocks = open_blocks + line.count('{') - line.count('}')
 
-            if in_contract:
-                if open_blocks <= 2:
-                    # TODO improve:
+            if open_blocks <= 2:
+                line_stripped = line.lstrip()
+                line_no_spaces = line.replace(' ', '')
 
-                    line_stripped = line.lstrip()
-                    line_no_spaces = line.replace(' ', '')
+                if line_stripped.startswith('function ') \
+                        or line_no_spaces.startswith('function()') \
+                        or line_no_spaces.startswith('constructor('):
 
-                    if line_stripped.startswith('function ') \
-                            or line_no_spaces.startswith('function()') \
-                            or line_no_spaces.startswith('constructor('):
-                        found = False
+                    func_found = None
+
+                    if (line_no_spaces.startswith('constructor(') or line_no_spaces.startswith('function' + self.contract_name)) \
+                            and len(constructors_in_list) > 0:
+                        func_found = constructors_in_list[0]
+                        constructors_in_list = []
+                    elif line_no_spaces.startswith('function()') and len(fallbacks_in_list) > 0:
+                        func_found = fallbacks_in_list[0]
+                        fallbacks_in_list = []
+                    else:
                         for func in remaining_functions:
-                            if line_no_spaces.startswith('function' + func.name + '(') \
-                                    or (func.name == 'fallback' and line_no_spaces.startswith('function()'))\
-                                    or ((func.name == 'constructor' or func.name == SLITHER_UNDECLARED_CONSTRUCTOR_NAME) and (line_no_spaces.startswith('constructor(') or line_no_spaces.startswith('function' + self.contract_name + '('))):
-                                found = True
-                                remaining_functions.remove(func)
-                                current_function = func
+                            if line_no_spaces.startswith('function' + func.name + '('):
+                                func_found = func
                                 break
 
-                        in_function = found
+                    found = func_found is not None
+                    if found:
+                        remaining_functions.remove(func_found)
+                        current_function = func_found
 
-                if in_function:
-                    function_done = insert_in_function(code_string, index, open_blocks, current_function)
-                    if function_done and len(remaining_functions) == 0:
-                        break
-                    else:
-                        in_function = not function_done
+                    in_function = found
 
-        if len(remaining_functions) > 0 and not (len(remaining_functions) == 1 and remaining_functions.pop().name == SLITHER_UNDECLARED_CONSTRUCTOR_NAME):
+            if in_function:
+                function_done = insert_in_function(code_string, index, open_blocks, current_function)
+                if function_done and len(remaining_functions) == 0:
+                    break
+                else:
+                    in_function = not function_done
+
+        if len(remaining_functions) > 0:
             raise Exception('One or more functions couldn\'t be instrumented')
 
 
@@ -262,8 +308,8 @@ class Instrumentator:
         function_done = False
         line = self.contract_lines[index]
 
-        if open_blocks == 2 and '{' in line:
-            self.contract_lines[index] = line.replace('{', '{\n' + code_string)
+        if open_blocks <= 2 and '{' in line:
+            self.contract_lines[index] = line.replace('{', '{\n' + code_string, 1)
             function_done = True
 
         return function_done
@@ -275,16 +321,23 @@ class Instrumentator:
 
         if 'return ' in line:
             if not 'return VERIMAN_' in line:
-                # For some versions of solc 'var' as a type is not enough:
-                return_type = ''
+                store_return_values = ''
+                return_variables = ''
                 for type in current_function.return_type:
-                    return_type += type.name + ', ' # TODO check
-                return_type = return_type.rsplit(', ', 1)[0]
-                new_var_for_return_value = Parser.create_variable_name('return_value')
+                    new_var_for_return_value = Parser.create_variable_name('return_value')
+                    store_return_values += f'{type} {new_var_for_return_value},'
+                    return_variables += new_var_for_return_value + ','
+                store_return_values = store_return_values.rsplit(',', 1)[0]
+                return_variables = return_variables.rsplit(',', 1)[0]
+
+                if len(current_function.return_type) > 1:
+                    store_return_values = '(' + store_return_values + ')'
+                    return_variables = '(' + return_variables + ')'
+
                 return_value = line.split('return ', 1)[1].split(';', 1)[0]
 
-                assignment_line = f'{return_type} {new_var_for_return_value}={return_value};'
-                new_return_line = f'return {new_var_for_return_value}'
+                assignment_line = f'{store_return_values}={return_value};'
+                new_return_line = f'return {return_variables}'
 
                 self.contract_lines[index] = line.replace(f'return {return_value}', f'{assignment_line}\n{code_string}\n{new_return_line}')
             else:

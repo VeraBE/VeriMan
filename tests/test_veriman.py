@@ -147,7 +147,7 @@ class TestVeriMan(TestCase):
         proof_found, verisol_counterexample = self.veriman.analyze_contract(instrumentation_only_config)
 
         self.assertFalse(proof_found)
-        self.check_no_error_output(verisol_counterexample) # FIXME
+        self.check_no_error_output(verisol_counterexample)
 
         instrumented_file_name = contract_name + INSTRUMENTED_FILE_END
 
@@ -162,8 +162,6 @@ class TestVeriMan(TestCase):
         self.inorder_config.verification.verisol.use = False
 
         proof_found, verisol_counterexample = self.veriman.analyze_contract(self.inorder_config)
-        self.assertFalse(proof_found)
-        self.check_no_error_output(verisol_counterexample)
 
         # Restore test configs:
         self.inorder_config.instrumentation.for_echidna = False
@@ -172,5 +170,21 @@ class TestVeriMan(TestCase):
         instrumented_file_name = 'InOrder' + INSTRUMENTED_FILE_END
 
         self.check_contract_compiles(instrumented_file_name) # TODO check more
+
+        os.remove(instrumented_file_name)
+
+    def test_inheritance(self):
+        contract_name = 'Inheritance'
+        inheritance_config = TestVeriMan.get_test_config()
+        inheritance_config.contract.path = os.path.dirname(os.path.abspath(__file__)) + '/' + contract_name + '.sol'
+        inheritance_config.contract.name = 'D'
+        inheritance_config.instrumentation.predicates = ['a_var + b_var + c_var + d_var < 10']
+        inheritance_config.verification.verisol.use = False
+
+        proof_found, verisol_counterexample = self.veriman.analyze_contract(inheritance_config)
+
+        instrumented_file_name = contract_name + INSTRUMENTED_FILE_END
+
+        self.check_contract_compiles(instrumented_file_name)  # TODO check more
 
         os.remove(instrumented_file_name)
