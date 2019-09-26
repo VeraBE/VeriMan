@@ -4,7 +4,8 @@ import parser
 import collections
 
 
-SLITHER_UNDECLARED_CONSTRUCTOR_NAME = 'slitherConstructorVariables'
+# TODO move to constants file?
+CONSTRUCTOR_NAME = 'constructor'
 
 
 # This whole class is a prototype, a proper parser should be used
@@ -16,7 +17,7 @@ class Instrumentator:
         self.contract_path = contract_path
         self.contract_name = contract_name
 
-        slither = Slither(self.contract_path)
+        slither = Slither(self.contract_path) # TODO check solc version
         self.contract_info = slither.get_contract_from_name(self.contract_name)
         if self.contract_info is None:
             raise Exception('Check config file for contract name')
@@ -85,45 +86,50 @@ class Instrumentator:
                     self.last_line_of_contract = index # TODO test
                     break
 
-            if inside_contract and (line_no_spaces.startswith('constructor(') or
+            if inside_contract and (line_no_spaces.startswith(CONSTRUCTOR_NAME + '(') or
                                     line_no_spaces.startswith('function' + self.contract_name + '(')):
                 constructor_found = True
                 break
 
         if not constructor_found:
             if pragma.startswith('^0.4'):
-                constructor_string = f'function {self.contract_name}() public {{\n}}\n'
+                constructor_string = f'function {self.contract_name}() public {{\n}}'
             elif pragma.startswith('^0.5'):
-                constructor_string = f'constructor() public {{\n}}\n'
+                constructor_string = CONSTRUCTOR_NAME + '() public {\n}'
             else:
                 # TODO handle cases like "pragma solidity >=0.4.0 <0.6.0;"
                 raise Exception("Unknown pragma in contract")
 
-            self.__insert_in_contract(constructor_string)
+            self.__insert_in_contract(constructor_string + ' // VERIMAN ADDED CONSTRUCTOR\n')
 
         self.__add_inherited_functions()
 
 
     def __should_be_instrumented(self, func):
-        return func.visibility == 'public' and not func.is_shadowed
+        return not func.is_shadowed and func.visibility in ['public', 'internal'] # TODO check internal
+
+
+    def __is_constructor(self, func):
+        return func.is_constructor or func.is_constructor_variables
 
 
     def __add_inherited_functions(self):
-        for func in self.contract_info.functions_inherited:
+        with open(self.contract_path) as original_contract_file:
+            original_contract = original_contract_file.readlines()
 
-            if self.__should_be_instrumented(func):
-                function_declaration_start = 'function ' + func.name
+        for func in self.contract_info.functions_inherited:
+            if not self.__is_constructor(func) and self.__should_be_instrumented(func):
+                function_declaration_start = 'function ' + func.name # FIXME
                 new_function = ''
 
-                in_desired_contract = False
-                in_desired_function = False
-                for index, line in enumerate(self.contract_lines):
-                    in_desired_contract = in_desired_contract or 'contract ' + func.contract_declarer.name in line
-                    in_desired_function = in_desired_contract and (in_desired_function or function_declaration_start in line)
-                    if in_desired_contract and in_desired_function:
-                        new_function += line
-                        if '{' in line:
-                            break
+                func_line_numbers = func.source_mapping['lines']
+                first_line_number = func_line_numbers[0]
+                last_line_number = func_line_numbers[-1]
+
+                for line_number in range(first_line_number, last_line_number):
+                    new_function += original_contract[line_number - 1]
+                    if '{' in new_function: # FIXME
+                        break
 
                 new_function = function_declaration_start + new_function.split(function_declaration_start, 1)[1]
                 new_function = new_function.split('{', 1)[0] + '{\n'
@@ -136,7 +142,7 @@ class Instrumentator:
                 for param in func.parameters:
                     new_function += param.name + ','
 
-                new_function = new_function.rsplit(',', 1)[0] + ');\n}\n'
+                new_function = new_function.rsplit(',', 1)[0] + ');\n} // VERIMAN ADDED INHERITED FUNCTION\n'
 
                 self.__insert_in_contract(new_function)
 
@@ -192,9 +198,9 @@ class Instrumentator:
                 break
 
         # The initial state also needs to be checked:
-        is_constructor_considered = False
+        is_constructor_considered = False # FIXME, temporal, issue with Slither
         for func in functions_to_instrument:
-            if func.name == 'constructor': # FIXME temporal, issue with Slither
+            if self.__is_constructor(func):
                 is_constructor_considered = True
                 break
 
@@ -203,13 +209,13 @@ class Instrumentator:
                 functions_to_instrument.add(self.contract_info.constructor)
             else:
                 for func in self.contract_info.functions:
-                    if func.name == SLITHER_UNDECLARED_CONSTRUCTOR_NAME:
+                    if self.__is_constructor(func):
                         functions_to_instrument.add(func)
                         break
 
         # We can thought of all no-state-changing functions as equivalent:
         for func in self.contract_info.functions:
-            if not func in functions_to_instrument and self.__should_be_instrumented(func) and func.name != 'constructor': # FIXME temporal, issue with Slither
+            if not func in functions_to_instrument and not self.__is_constructor(func) and self.__should_be_instrumented(func):
                 functions_to_instrument.add(func)
                 break
 
@@ -252,9 +258,8 @@ class Instrumentator:
         in_function = False
         current_function = None
 
-        constructors_in_list = list(filter(lambda func: func.name == 'constructor' or
-                                                        func.name == SLITHER_UNDECLARED_CONSTRUCTOR_NAME, remaining_functions))
-        fallbacks_in_list = list(filter(lambda func: func.name == 'fallback', remaining_functions))
+        constructors_in_list = list(filter(lambda func: self.__is_constructor(func), remaining_functions))
+        fallbacks_in_list = list(filter(lambda func: func.is_fallback, remaining_functions))
 
         if len(constructors_in_list) > 1 or len(fallbacks_in_list) > 1:
             raise Exception('Invalid set of functions to instrument')
@@ -269,11 +274,11 @@ class Instrumentator:
 
                 if line_stripped.startswith('function ') \
                         or line_no_spaces.startswith('function()') \
-                        or line_no_spaces.startswith('constructor('):
+                        or line_no_spaces.startswith(CONSTRUCTOR_NAME + '('):
 
                     func_found = None
 
-                    if (line_no_spaces.startswith('constructor(') or line_no_spaces.startswith('function' + self.contract_name)) \
+                    if (line_no_spaces.startswith(CONSTRUCTOR_NAME + '(') or line_no_spaces.startswith('function' + self.contract_name)) \
                             and len(constructors_in_list) > 0:
                         func_found = constructors_in_list[0]
                         constructors_in_list = []

@@ -187,4 +187,6 @@ class TestVeriMan(TestCase):
 
         self.check_contract_compiles(instrumented_file_name)  # TODO check more
 
+        # TODO use Slither to check new contract functions and that some of them are shadowed
+
         os.remove(instrumented_file_name)

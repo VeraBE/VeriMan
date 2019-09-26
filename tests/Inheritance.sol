@@ -24,10 +24,26 @@ contract B {
 
         return (aValue + anotherValue, 0);
     }
+
+    function withTheSameName() public { // TODO check in tests
+        b_var++;
+    }
+
+    function withTheSameName(uint aParam) public {
+        b_var++;
+    }
+
+    function withTheSameName(uint aParam, bool anotherParam) public {
+        b_var++;
+    }
 }
 
 contract C is B {
     uint public c_var;
+
+    constructor() public {
+        c_var = 1;
+    }
 
     function cFunction() private {
         c_var++;
@@ -42,6 +58,10 @@ contract C is B {
 
 contract D is A, C {
     uint public d_var;
+
+    constructor() public { // TODO check in tests
+        d_var = 2;
+    }
 
     function dFunction() public {
         d_var++;
