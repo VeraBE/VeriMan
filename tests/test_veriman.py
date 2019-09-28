@@ -5,7 +5,8 @@ from unittest import TestCase
 from veriman import VeriMan
 
 
-INSTRUMENTED_FILE_END = '_toAnalyze_merged.sol'
+# TODO move to constants file?
+INSTRUMENTED_FILE_END = '_VERIMAN.sol'
 
 
 class TestVeriMan(TestCase):
@@ -186,7 +187,5 @@ class TestVeriMan(TestCase):
         instrumented_file_name = contract_name + INSTRUMENTED_FILE_END
 
         self.check_contract_compiles(instrumented_file_name)  # TODO check more
-
-        # TODO use Slither to check new contract functions and that some of them are shadowed
 
         os.remove(instrumented_file_name)

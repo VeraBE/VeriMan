@@ -7,9 +7,7 @@ from datetime import datetime
 from manticore.ethereum import ManticoreEVM
 from manticore.utils import config as manticoreConfig
 from manticore.ethereum.plugins import LoopDepthLimiter, FilterFunctions
-from shutil import copyfile
 from instrumentator import Instrumentator
-
 
 
 class VeriMan:
@@ -50,13 +48,10 @@ class VeriMan:
 
                 self.print('[-] Time elapsed:', end_time - start_time, 'seconds')
 
-            if self.does_cleanup:
-                self.__cleanup()
+            self.__cleanup()
 
         except Exception as e:
-            if self.does_cleanup:
-                self.__cleanup()
-
+            self.__cleanup()
             raise(e)
 
         return proof_found, verisol_counterexample
@@ -96,16 +91,14 @@ class VeriMan:
 
 
     def __pre_process_contract(self):
-        modified_contract_path = self.contract_path.replace('.sol', '_toAnalyze.sol')
-
-        copyfile(self.contract_path, modified_contract_path)
-        self.files_to_cleanup.append(modified_contract_path)
-
         # Solidity and VeriSol don't support imports, plus sol-merger removes comments:
-        solmerger_process = subprocess.Popen([f'sol-merger {modified_contract_path}'], stdout=subprocess.PIPE, shell=True)
+        solmerger_process = subprocess.Popen([f'sol-merger {self.contract_path}'], stdout=subprocess.PIPE, shell=True)
         solmerger_process.wait()
         solmerger_process.stdout.close()
-        self.contract_path = modified_contract_path.replace('.sol', '_merged.sol')
+
+        new_contract_path = self.contract_path.replace('.sol', '_VERIMAN.sol')
+        os.rename(self.contract_path.replace('.sol', '_merged.sol'), new_contract_path)
+        self.contract_path = new_contract_path
 
         if not (self.instrument and not self.use_verisol):
             self.files_to_cleanup.append(self.contract_path)
@@ -229,10 +222,11 @@ class VeriMan:
 
 
     def __cleanup(self):
-        self.print('[.] Cleaning up')
-        for file in self.files_to_cleanup:
-            os.remove(file)
-        self.files_to_cleanup = []
+        if self.does_cleanup:
+            self.print('[.] Cleaning up')
+            for file in self.files_to_cleanup:
+                os.remove(file)
+            self.files_to_cleanup = []
 
 
     def __create_output_path(self):

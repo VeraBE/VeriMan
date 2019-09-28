@@ -4,28 +4,11 @@ import parser
 import collections
 
 
-# TODO move to constants file?
-CONSTRUCTOR_NAME = 'constructor'
-
-
-# This whole class is a prototype, a proper parser should be used
-
-
 class Instrumentator:
 
     def instrument(self, contract_path, contract_name, predicates, instrument_for_echidna):
         self.contract_path = contract_path
         self.contract_name = contract_name
-
-        slither = Slither(self.contract_path) # TODO check solc version
-        self.contract_info = slither.get_contract_from_name(self.contract_name)
-        if self.contract_info is None:
-            raise Exception('Check config file for contract name')
-
-        with open(self.contract_path) as contract_file:
-            contract = contract_file.read()
-        contract = contract.replace('}', '\n}')
-        self.contract_lines = contract.split('\n')
 
         self.__pre_process_contract()
 
@@ -44,7 +27,7 @@ class Instrumentator:
                 echidna_function += '(' + predicate.solidity_repr + ')\n&& '
             else:
                 assert_string = f'assert({predicate.solidity_repr}); // VERIMAN ASSERT FOR PREDICATE NO. {index + 1}'
-                self.__insert_in_functions(functions_to_instrument, assert_string, self.__insert_at_end_of_functions)
+                self.__insert_at_functions_end(functions_to_instrument, assert_string)
 
         if instrument_for_echidna:
             echidna_function = 'function echidna_invariant() public returns(bool) {\nreturn ' \
@@ -52,86 +35,75 @@ class Instrumentator:
                                + ';\n}'
             self.__insert_in_contract(echidna_function)
 
-        contract = '\n'.join(self.contract_lines)
         with open(self.contract_path, 'w') as contract_file:
-            contract_file.write(contract)
+            contract_file.writelines(self.contract_lines)
 
 
     def __pre_process_contract(self):
-        pragma = ''
-        pragma_found = False
-        inside_contract = False
-        constructor_found = False
-        self.first_line_of_contract = 0
-        self.last_line_of_contract = len(self.contract_lines)
+        slither = Slither(self.contract_path)
+        self.contract_info = slither.get_contract_from_name(self.contract_name)
+        if self.contract_info is None:
+            raise Exception('Check config file for contract name')
 
-        for index, line in enumerate(self.contract_lines):
-            line_no_spaces = line.replace(' ', '')
+        with open(self.contract_path) as contract_file:
+            self.contract_lines = contract_file.readlines()
 
-            if not pragma_found and 'pragmasolidity' in line_no_spaces:
-                pragma_found = True
-                pragma = line_no_spaces.split('pragmasolidity')[1].split(';')[0]
-
-            if line.lstrip().startswith('contract '):
-                was_inside_contract = inside_contract
-                inside_contract = line_no_spaces.startswith('contract' + self.contract_name)
-
-                if inside_contract:
-                    for i in range(index, len(self.contract_lines) - 1):
-                        contract_line = self.contract_lines[i]
-                        if '{' in contract_line:
-                            self.first_line_of_contract = i # TODO test
-                            break
-                elif was_inside_contract:
-                    self.last_line_of_contract = index # TODO test
-                    break
-
-            if inside_contract and (line_no_spaces.startswith(CONSTRUCTOR_NAME + '(') or
-                                    line_no_spaces.startswith('function' + self.contract_name + '(')):
-                constructor_found = True
-                break
-
-        if not constructor_found:
-            if pragma.startswith('^0.4'):
-                constructor_string = f'function {self.contract_name}() public {{\n}}'
-            elif pragma.startswith('^0.5'):
-                constructor_string = CONSTRUCTOR_NAME + '() public {\n}'
-            else:
-                # TODO handle cases like "pragma solidity >=0.4.0 <0.6.0;"
-                raise Exception("Unknown pragma in contract")
-
-            self.__insert_in_contract(constructor_string + ' // VERIMAN ADDED CONSTRUCTOR\n')
+        self.__add_constructor(slither)
 
         self.__add_inherited_functions()
 
+        # TODO improve efficiency:
+
+        with open(self.contract_path, 'w') as contract_file:
+            contract_file.writelines(self.contract_lines)
+
+        slither = Slither(self.contract_path)
+        self.contract_info = slither.get_contract_from_name(self.contract_name)
+
+        with open(self.contract_path) as contract_file:
+            self.contract_lines = contract_file.readlines()
+
 
     def __should_be_instrumented(self, func):
-        return not func.is_shadowed and func.visibility in ['public', 'internal'] # TODO check internal
+        return not func.is_shadowed and \
+               func.visibility in ['public', 'internal'] and \
+               func.name != 'slitherConstructorVariables'  # Because of Slither 'bug'
 
 
-    def __is_constructor(self, func):
-        return func.is_constructor or func.is_constructor_variables
+    def __add_constructor(self, slither):
+        constructor_missing = self.contract_info.constructors_declared is None
+        solc_version_parts = slither.solc_version.split('.')
+
+        if constructor_missing:
+            if int(solc_version_parts[0]) == 0 and int(solc_version_parts[1]) <= 4:
+                constructor_string = f'function {self.contract_name}() public {{\n}}'
+            else:
+                constructor_string = 'constructor() public {\n}'
+
+            self.__insert_in_contract('// VERIMAN ADDED CONSTRUCTOR:\n' + constructor_string)
 
 
     def __add_inherited_functions(self):
-        with open(self.contract_path) as original_contract_file:
-            original_contract = original_contract_file.readlines()
-
         for func in self.contract_info.functions_inherited:
-            if not self.__is_constructor(func) and self.__should_be_instrumented(func):
-                function_declaration_start = 'function ' + func.name # FIXME
-                new_function = ''
-
+            if not func.is_constructor and self.__should_be_instrumented(func):
                 func_line_numbers = func.source_mapping['lines']
                 first_line_number = func_line_numbers[0]
                 last_line_number = func_line_numbers[-1]
+                first_column_number = func.source_mapping['starting_column'] - 1
 
-                for line_number in range(first_line_number, last_line_number):
-                    new_function += original_contract[line_number - 1]
-                    if '{' in new_function: # FIXME
+                new_function = ''
+
+                for line_number in range(first_line_number - 1, last_line_number):
+                    line = self.contract_lines[line_number]
+
+                    if line_number == first_line_number - 1:
+                        line = line[first_column_number : len(line) - 1]
+
+                    new_function += line
+
+                    if '{' in new_function:
                         break
 
-                new_function = function_declaration_start + new_function.split(function_declaration_start, 1)[1]
                 new_function = new_function.split('{', 1)[0] + '{\n'
 
                 if func.return_type is not None:
@@ -142,9 +114,9 @@ class Instrumentator:
                 for param in func.parameters:
                     new_function += param.name + ','
 
-                new_function = new_function.rsplit(',', 1)[0] + ');\n} // VERIMAN ADDED INHERITED FUNCTION\n'
+                new_function = new_function.rsplit(',', 1)[0] + ');\n}'
 
-                self.__insert_in_contract(new_function)
+                self.__insert_in_contract('// VERIMAN ADDED INHERITED FUNCTION:\n' + new_function)
 
 
     def __instrument_new_variables(self, predicate, functions_to_instrument, instrument_for_echidna):
@@ -154,24 +126,22 @@ class Instrumentator:
                 update_code = f'{predicate.solidity_vars[0]}={predicate.values[0].solidity_repr};'
 
                 self.__insert_in_contract(initialization_code)
-                self.__insert_in_functions(functions_to_instrument, update_code, self.__insert_at_beginning_of_functions)
+                self.__insert_at_functions_beginning(functions_to_instrument, update_code)
             else:
                 initialization_code = f'bool {predicate.solidity_vars[0]}={predicate.values[0].solidity_repr};'
 
-                self.__insert_in_functions(functions_to_instrument, initialization_code, self.__insert_at_beginning_of_functions)
+                self.__insert_at_functions_beginning(functions_to_instrument, initialization_code)
         elif predicate.operator == parser.SINCE:
             q = predicate.solidity_vars[0]
             p_since_q = predicate.solidity_vars[1]
             q_repr = predicate.values[1].solidity_repr
             p_repr = predicate.values[0].solidity_repr
             initialization_code = f'bool {q}=false;\nbool {p_since_q}=true;'
-            update_code = '''if({q}){{\n\
-{p_since_q}={p_repr}&&{p_since_q};\n\
-}}\n
-{q}={q_repr}||{q};\n'''.format(q=q, p_since_q=p_since_q, q_repr=q_repr, p_repr=p_repr)
+            update_code = '''if({q}){{\n{p_since_q}={p_repr}&&{p_since_q};\n}}\n{q}={q_repr}||{q};'''\
+                .format(q=q, p_since_q=p_since_q, q_repr=q_repr, p_repr=p_repr)
 
             self.__insert_in_contract(initialization_code)
-            self.__insert_in_functions(functions_to_instrument, update_code, self.__insert_at_end_of_functions)
+            self.__insert_at_functions_end(functions_to_instrument, update_code)
 
         for term in predicate.values:
             self.__instrument_new_variables(term, functions_to_instrument, instrument_for_echidna)
@@ -198,24 +168,13 @@ class Instrumentator:
                 break
 
         # The initial state also needs to be checked:
-        is_constructor_considered = False # FIXME, temporal, issue with Slither
-        for func in functions_to_instrument:
-            if self.__is_constructor(func):
-                is_constructor_considered = True
-                break
-
-        if not is_constructor_considered:
-            if self.contract_info.constructor is not None:
-                functions_to_instrument.add(self.contract_info.constructor)
-            else:
-                for func in self.contract_info.functions:
-                    if self.__is_constructor(func):
-                        functions_to_instrument.add(func)
-                        break
+        constructor = self.contract_info.constructor
+        if constructor not in functions_to_instrument:
+            functions_to_instrument.add(constructor)
 
         # We can thought of all no-state-changing functions as equivalent:
         for func in self.contract_info.functions:
-            if not func in functions_to_instrument and not self.__is_constructor(func) and self.__should_be_instrumented(func):
+            if self.__should_be_instrumented(func) and not func in functions_to_instrument:
                 functions_to_instrument.add(func)
                 break
 
@@ -247,118 +206,71 @@ class Instrumentator:
         return result
 
 
-    def __insert_in_contract(self, code_to_insert):
-        self.contract_lines.insert(self.first_line_of_contract + 1, code_to_insert)
-        self.last_line_of_contract += 1
+    def __insert_in_contract(self, to_insert):
+        self.__insert_at_beginning_of_structure(self.contract_info, to_insert + '\n')
 
 
-    def __insert_in_functions(self, functions, code_string, insert_in_function):
-        remaining_functions = list(functions)
-        open_blocks = 0
-        in_function = False
-        current_function = None
+    def __insert_at_functions_beginning(self, functions, to_insert):
+        for func in functions:
+            self.__insert_at_beginning_of_structure(func, to_insert)
 
-        constructors_in_list = list(filter(lambda func: self.__is_constructor(func), remaining_functions))
-        fallbacks_in_list = list(filter(lambda func: func.is_fallback, remaining_functions))
 
-        if len(constructors_in_list) > 1 or len(fallbacks_in_list) > 1:
-            raise Exception('Invalid set of functions to instrument')
+    def __insert_at_beginning_of_structure(self, structure, to_insert):
+        line_numbers = structure.source_mapping['lines']
+        first_line_number = line_numbers[0]
+        last_line_number = line_numbers[-1]
 
-        for index in range(self.first_line_of_contract, self.last_line_of_contract):
-            line = self.contract_lines[index]
-            open_blocks = open_blocks + line.count('{') - line.count('}')
+        for line_number in range(first_line_number - 1, last_line_number):
+            line = self.contract_lines[line_number]
 
-            if open_blocks <= 2:
-                line_stripped = line.lstrip()
-                line_no_spaces = line.replace(' ', '')
+            if '{' in line:  # FIXME
+                self.contract_lines[line_number] = line.replace('{', '{\n' + to_insert, 1)
+                break
 
-                if line_stripped.startswith('function ') \
-                        or line_no_spaces.startswith('function()') \
-                        or line_no_spaces.startswith(CONSTRUCTOR_NAME + '('):
 
-                    func_found = None
+    def __insert_at_functions_end(self, functions, to_insert):
+        for func in functions:
+            func_line_numbers = func.source_mapping['lines']
+            first_line_number = func_line_numbers[0]
+            last_line_number = func_line_numbers[-1]
+            done = False
+            open_blocks = 0
 
-                    if (line_no_spaces.startswith(CONSTRUCTOR_NAME + '(') or line_no_spaces.startswith('function' + self.contract_name)) \
-                            and len(constructors_in_list) > 0:
-                        func_found = constructors_in_list[0]
-                        constructors_in_list = []
-                    elif line_no_spaces.startswith('function()') and len(fallbacks_in_list) > 0:
-                        func_found = fallbacks_in_list[0]
-                        fallbacks_in_list = []
+            for line_number in range(first_line_number - 1, last_line_number):
+                line = self.contract_lines[line_number]
+
+                open_blocks = open_blocks + line.count('{') - line.count('}')
+
+                if 'return ' in line:
+                    if not 'return VERIMAN_' in line:
+                        store_return_values = ''
+                        return_variables = ''
+                        for type in func.return_type:
+                            new_var_for_return_value = Parser.create_variable_name('return_value')
+                            store_return_values += f'{type} {new_var_for_return_value},'
+                            return_variables += new_var_for_return_value + ','
+                        store_return_values = store_return_values.rsplit(',', 1)[0]
+                        return_variables = return_variables.rsplit(',', 1)[0]
+
+                        if len(func.return_type) > 1:
+                            store_return_values = '(' + store_return_values + ')'
+                            return_variables = '(' + return_variables + ')'
+
+                        return_value = line.split('return ', 1)[1].split(';', 1)[0]
+
+                        assignment_line = f'{store_return_values}={return_value};'
+                        new_return_line = f'return {return_variables}'
+
+                        self.contract_lines[line_number] = line.replace(f'return {return_value}',
+                                                                        f'{assignment_line}\n{to_insert}\n{new_return_line}') # FIXME
                     else:
-                        for func in remaining_functions:
-                            if line_no_spaces.startswith('function' + func.name + '('):
-                                func_found = func
-                                break
+                        self.contract_lines[line_number] = line.replace('return ', f'{to_insert}\nreturn ') # FIXME
 
-                    found = func_found is not None
-                    if found:
-                        remaining_functions.remove(func_found)
-                        current_function = func_found
+                    done = done or open_blocks <= 1
 
-                    in_function = found
+                if 'return;' in line: # FIXME
+                    self.contract_lines[line_number] = line.replace('return;', f'{to_insert}\nreturn;') # FIXME
+                    done = done or open_blocks <= 1
 
-            if in_function:
-                function_done = insert_in_function(code_string, index, open_blocks, current_function)
-                if function_done and len(remaining_functions) == 0:
-                    break
-                else:
-                    in_function = not function_done
-
-        if len(remaining_functions) > 0:
-            raise Exception('One or more functions couldn\'t be instrumented')
-
-
-    def __insert_at_beginning_of_functions(self, code_string, index, open_blocks, current_function):
-        function_done = False
-        line = self.contract_lines[index]
-
-        if open_blocks <= 2 and '{' in line:
-            self.contract_lines[index] = line.replace('{', '{\n' + code_string, 1)
-            function_done = True
-
-        return function_done
-
-
-    def __insert_at_end_of_functions(self, code_string, index, open_blocks, current_function):
-        function_done = False
-        line = self.contract_lines[index]
-
-        if 'return ' in line:
-            if not 'return VERIMAN_' in line:
-                store_return_values = ''
-                return_variables = ''
-                for type in current_function.return_type:
-                    new_var_for_return_value = Parser.create_variable_name('return_value')
-                    store_return_values += f'{type} {new_var_for_return_value},'
-                    return_variables += new_var_for_return_value + ','
-                store_return_values = store_return_values.rsplit(',', 1)[0]
-                return_variables = return_variables.rsplit(',', 1)[0]
-
-                if len(current_function.return_type) > 1:
-                    store_return_values = '(' + store_return_values + ')'
-                    return_variables = '(' + return_variables + ')'
-
-                return_value = line.split('return ', 1)[1].split(';', 1)[0]
-
-                assignment_line = f'{store_return_values}={return_value};'
-                new_return_line = f'return {return_variables}'
-
-                self.contract_lines[index] = line.replace(f'return {return_value}', f'{assignment_line}\n{code_string}\n{new_return_line}')
-            else:
-                self.contract_lines[index] = line.replace('return ', f'{code_string}\nreturn ')
-
-            function_done = open_blocks <= 2
-
-        if 'return;' in line:
-            self.contract_lines[index] = line.replace('return;', f'{code_string}\nreturn;')
-            function_done = open_blocks <= 2
-
-        if not function_done and open_blocks == 1 and '}' in line:
-            solidity_lines = line.split(';')
-            finishes_with_return = 'return ' in solidity_lines[len(solidity_lines) - 1]
-            if not finishes_with_return:
-                self.contract_lines[index] =  (code_string + '\n}').join(line.rsplit('}', 1))
-                function_done = True
-
-        return function_done
+                if open_blocks == 0 and not done: # FIXME
+                    self.contract_lines[line_number] =  (to_insert + '\n}').join(line.rsplit('}', 1))
