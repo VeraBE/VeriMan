@@ -59,9 +59,9 @@ contract C is B {
 contract D is A, C {
     uint public d_var;
 
-     constructor() public {
-         d_var = 2;
-     }
+    constructor() public {
+        d_var = 2;
+    }
 
     function dFunction() public {
         d_var++;

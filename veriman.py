@@ -8,6 +8,10 @@ from manticore.ethereum import ManticoreEVM
 from manticore.utils import config as manticoreConfig
 from manticore.ethereum.plugins import LoopDepthLimiter, FilterFunctions
 from instrumentator import Instrumentator
+from shutil import copyfile
+
+
+# TODO refactor pre processing logic
 
 
 class VeriMan:
@@ -19,51 +23,90 @@ class VeriMan:
             return commentjson.loads(config_file_string, object_hook=lambda d: Namespace(**d))
 
 
-    def analyze_contract(self, config):
-        self.__read_config(config)
-
-        proof_found = False
-        verisol_counterexample = []
-
-        self.print('[-] Analyzing', self.contract_name)
-        if self.instrument:
-            self.print('[-] Will instrument to check:', self.predicates)
-
-        try:
-            self.__pre_process_contract()
-
-            if self.use_verisol:
-                start_time = time.time()
-
-                proof_found, verisol_counterexample = self.__run_verisol()
-
-                trace_for_manticore = list(verisol_counterexample)
-                if len(trace_for_manticore) > 0:
-                    trace_for_manticore.remove('Constructor')
-
-                if self.use_manticore and len(trace_for_manticore) > 0:
-                    self.__run_manticore(trace_for_manticore)
-
-                end_time = time.time()
-
-                self.print('[-] Time elapsed:', end_time - start_time, 'seconds')
-
-            self.__cleanup()
-
-        except Exception as e:
-            self.__cleanup()
-            raise(e)
-
-        return proof_found, verisol_counterexample
+    def __init__(self):
+        self.files_to_cleanup = set()
+        self.was_pre_processed = False
 
 
-    def __read_config(self, config):
+    def __del__(self):
+        self.__cleanup()
+
+
+    def pre_process_contract(self, config):
+        start_time = time.time()
+
         self.contract_path = config.contract.path
         self.contract_args = config.contract.args
         self.contract_name = config.contract.name
         if len(self.contract_name) == 0:
             self.contract_name = self.contract_path.rsplit('/', 1)[1].replace('.sol', '')
 
+        self.__read_config(config)
+
+        self.print('[.] Pre processing', self.contract_name)
+
+        self.__merge_contract()
+
+        self.original_contract_path = self.contract_path
+
+        if self.instrument:
+            self.instrumentator = Instrumentator()
+
+            self.instrumentator.pre_process_contract(self.contract_path, self.contract_name)
+
+        self.was_pre_processed = True
+
+        end_time = time.time()
+
+        self.print('[-] Pre processing time:', end_time - start_time, 'seconds')
+
+
+    def analyze_contract(self, config):
+        if self.was_pre_processed:
+            self.__read_config(config)
+        else:
+            self.pre_process_contract(config)
+
+        proof_found = False
+        verisol_counterexample = []
+
+        if self.instrument:
+            self.print('[-] Will instrument to check:', self.predicates)
+
+        self.contract_path = self.original_contract_path.replace('.sol', '_' +  datetime.now().strftime('%s') + '.sol')
+        copyfile(self.original_contract_path, self.contract_path)
+        if not (self.instrument and not self.use_verisol):
+            self.files_to_cleanup.add(self.contract_path)
+
+        if self.instrument:
+            start_time = time.time()
+
+            self.instrumentator.instrument(self.contract_path, self.predicates, self.instrument_for_echidna)
+
+            end_time = time.time()
+
+            self.print('[-] Instrumentation time:', end_time - start_time, 'seconds')
+
+        if self.use_verisol:
+            start_time = time.time()
+
+            proof_found, verisol_counterexample = self.__run_verisol()
+
+            trace_for_manticore = list(verisol_counterexample)
+            if len(trace_for_manticore) > 0:
+                trace_for_manticore.remove('Constructor')
+
+            if self.use_manticore and len(trace_for_manticore) > 0:
+                self.__run_manticore(trace_for_manticore)
+
+            end_time = time.time()
+
+            self.print('[-] Analysis time:', end_time - start_time, 'seconds')
+
+        return proof_found, verisol_counterexample
+
+
+    def __read_config(self, config):
         self.does_cleanup = config.output.cleanup
         self.verbose = config.output.verbose
         self.print = print if self.verbose else lambda *a, **k: None
@@ -87,25 +130,18 @@ class VeriMan:
             raise Exception('At least one user account has to be created')
         self.fallback_data_size = config.verification.manticore.fallback_data_size
 
-        self.files_to_cleanup = []
 
-
-    def __pre_process_contract(self):
+    def __merge_contract(self):
         # Solidity and VeriSol don't support imports, plus sol-merger removes comments:
         solmerger_process = subprocess.Popen([f'sol-merger {self.contract_path}'], stdout=subprocess.PIPE, shell=True)
         solmerger_process.wait()
         solmerger_process.stdout.close()
 
-        new_contract_path = self.contract_path.replace('.sol', '_VERIMAN.sol')
+        new_contract_path = self.contract_path.replace('.sol', '_VERIMAN_' + datetime.now().strftime('%s') + '.sol')
         os.rename(self.contract_path.replace('.sol', '_merged.sol'), new_contract_path)
         self.contract_path = new_contract_path
 
-        if not (self.instrument and not self.use_verisol):
-            self.files_to_cleanup.append(self.contract_path)
-
-        if self.instrument:
-            instrumentator = Instrumentator()
-            instrumentator.instrument(self.contract_path, self.contract_name, self.predicates, self.instrument_for_echidna)
+        self.files_to_cleanup.add(self.contract_path)
 
 
     def __run_verisol(self):
@@ -121,10 +157,10 @@ class VeriMan:
         counterexample = []
 
         if proof_found:
-            self.files_to_cleanup += ['__SolToBoogieTest_out.bpl', 'boogie.txt']
+            self.files_to_cleanup.update(['__SolToBoogieTest_out.bpl', 'boogie.txt'])
             self.print('[!] Contract proven, asserts cannot fail')
         elif 'Found a counterexample' in verisol_output:
-            self.files_to_cleanup += ['__SolToBoogieTest_out.bpl', 'boogie.txt', 'corral.txt', 'corral_counterex.txt', 'corral_out.bpl', 'corral_out_trace.txt']
+            self.files_to_cleanup.update(['__SolToBoogieTest_out.bpl', 'boogie.txt', 'corral.txt', 'corral_counterex.txt', 'corral_out.bpl', 'corral_out_trace.txt'])
 
             trace_parts = verisol_output.split(self.contract_name + '::')
             del trace_parts[0]
@@ -134,7 +170,7 @@ class VeriMan:
                 counterexample.append(call_found)
             self.print('[!] Counterexample found:', counterexample)
         elif 'Did not find a proof' in verisol_output:
-            self.files_to_cleanup += ['__SolToBoogieTest_out.bpl', 'boogie.txt', 'corral.txt']
+            self.files_to_cleanup.update(['__SolToBoogieTest_out.bpl', 'boogie.txt', 'corral.txt'])
             self.print('[!] Contract cannot be proven, but a counterexample was not found, successful up to', str(self.tx_limit), 'transactions')
         else:
             raise Exception('Error reported by VeriSol:\n' + verisol_output)
@@ -225,8 +261,9 @@ class VeriMan:
         if self.does_cleanup:
             self.print('[.] Cleaning up')
             for file in self.files_to_cleanup:
-                os.remove(file)
-            self.files_to_cleanup = []
+                if os.path.isfile(file):
+                    os.remove(file)
+            self.files_to_cleanup = set()
 
 
     def __create_output_path(self):

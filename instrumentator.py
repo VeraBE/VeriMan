@@ -4,13 +4,41 @@ import parser
 import collections
 
 
+# TODO refactor pre processing logic
+
+
 class Instrumentator:
 
-    def instrument(self, contract_path, contract_name, predicates, instrument_for_echidna):
+    def pre_process_contract(self, contract_path, contract_name):
         self.contract_path = contract_path
         self.contract_name = contract_name
 
-        self.__pre_process_contract()
+        slither = Slither(self.contract_path)
+        self.contract_info = slither.get_contract_from_name(self.contract_name)
+        if self.contract_info is None:
+            raise Exception('Check config file for contract name')
+
+        with open(self.contract_path) as contract_file:
+            self.contract_lines = contract_file.readlines()
+
+        self.__add_constructor(slither)
+
+        self.__add_inherited_functions()
+
+        # TODO improve efficiency:
+
+        with open(self.contract_path, 'w') as contract_file:
+            contract_file.writelines(self.contract_lines)
+
+        slither = Slither(self.contract_path)
+        self.contract_info = slither.get_contract_from_name(self.contract_name)
+
+
+    def instrument(self, contract_path, predicates, instrument_for_echidna):
+        self.contract_path = contract_path
+
+        with open(self.contract_path) as contract_file:
+            self.contract_lines = contract_file.readlines()
 
         parser = Parser()
 
@@ -39,34 +67,11 @@ class Instrumentator:
             contract_file.writelines(self.contract_lines)
 
 
-    def __pre_process_contract(self):
-        slither = Slither(self.contract_path)
-        self.contract_info = slither.get_contract_from_name(self.contract_name)
-        if self.contract_info is None:
-            raise Exception('Check config file for contract name')
-
-        with open(self.contract_path) as contract_file:
-            self.contract_lines = contract_file.readlines()
-
-        self.__add_constructor(slither)
-
-        self.__add_inherited_functions()
-
-        # TODO improve efficiency:
-
-        with open(self.contract_path, 'w') as contract_file:
-            contract_file.writelines(self.contract_lines)
-
-        slither = Slither(self.contract_path)
-        self.contract_info = slither.get_contract_from_name(self.contract_name)
-
-        with open(self.contract_path) as contract_file:
-            self.contract_lines = contract_file.readlines()
-
-
     def __should_be_instrumented(self, func):
         return not func.is_shadowed and \
                func.visibility in ['public', 'internal'] and \
+               not (func.is_constructor and func.contract_declarer != self.contract_name) and \
+               func.view is None and \
                func.name != 'slitherConstructorVariables'  # Because of Slither 'bug'
 
 
@@ -173,6 +178,7 @@ class Instrumentator:
             functions_to_instrument.add(constructor)
 
         # We can thought of all no-state-changing functions as equivalent:
+        # TODO create new one if necessary?
         for func in self.contract_info.functions:
             if self.__should_be_instrumented(func) and not func in functions_to_instrument:
                 functions_to_instrument.add(func)
