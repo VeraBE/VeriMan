@@ -42,8 +42,6 @@ class Instrumentator:
 
         parser = Parser()
 
-        echidna_function = ''
-
         for index, predicate_string in enumerate(predicates):
             predicate = parser.parse(predicate_string)
 
@@ -52,16 +50,11 @@ class Instrumentator:
             self.__instrument_new_variables(predicate, functions_to_instrument, instrument_for_echidna)
 
             if instrument_for_echidna:
-                echidna_function += '(' + predicate.solidity_repr + ')\n&& '
+                echidna_function = f'function echidna_VERIMAN_predicate_no_{str(index + 1)}() public returns(bool){{\nreturn {predicate.solidity_repr};\n}}'
+                self.__insert_in_contract(echidna_function)
             else:
                 assert_string = f'assert({predicate.solidity_repr}); // VERIMAN ASSERT FOR PREDICATE NO. {index + 1}'
                 self.__insert_at_functions_end(functions_to_instrument, assert_string)
-
-        if instrument_for_echidna:
-            echidna_function = 'function echidna_invariant() public returns(bool) {\nreturn ' \
-                               + echidna_function.rsplit('\n&& ', 1)[0]\
-                               + ';\n}'
-            self.__insert_in_contract(echidna_function)
 
         with open(self.contract_path, 'w') as contract_file:
             contract_file.writelines(self.contract_lines)

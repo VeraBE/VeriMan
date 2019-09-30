@@ -9,6 +9,7 @@
     "cleanup": true
   },
   "instrumentation": {
+    // TODO add solc path for Slither?
     "instrument": true,
     "for_echidna": false,
     "predicates": [

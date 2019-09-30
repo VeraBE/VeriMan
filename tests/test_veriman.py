@@ -201,7 +201,6 @@ class TestVeriMan(TestCase):
         predicates = ['num_calls < 1', 'num_calls < 2', 'num_calls < 3']
 
         veriman = VeriMan()
-        veriman.pre_process_contract(self.inorder_config)
 
         for predicate in predicates:
             self.inorder_config.instrumentation.predicates = [predicate]
