@@ -1,6 +1,6 @@
 from slither.slither import Slither
-from parser import Parser
-import parser
+from src.parser import Parser
+import src.parser as parser
 import collections
 
 

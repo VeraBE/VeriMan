@@ -21,6 +21,7 @@
     },
     "manticore": {
       "use": true,
+      "output_path": "",
       "procs": 3,  // For multithreading
       "avoid_constant_txs": true, // Avoid all TXs that have no effect on the storage
       "loop_delimiter": false,

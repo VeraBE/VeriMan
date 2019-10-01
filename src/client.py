@@ -1,10 +1,10 @@
-from veriman import VeriMan
+from src.veriman import VeriMan
 
 
 if __name__ == '__main__':
     veriman = VeriMan()
 
-    config = VeriMan.parse_config('config.json')
+    config = VeriMan.parse_config('../config.json')
 
     if config.verification.verisol.use and config.instrumentation.instrument:
         veriman.pre_process_contract(config)

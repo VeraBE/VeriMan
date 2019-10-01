@@ -25,6 +25,7 @@
     },
     "manticore": {
       "use": false, // Will only be used if VeriSol is
+      "output_path": "/home/user/veriman/output",
       "procs": 3,  // For multithreading
       "avoid_constant_txs": true, // Avoid all TXs that have no effect on the storage
       "loop_delimiter": false, // TODO fix Manticore plugin

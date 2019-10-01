@@ -7,7 +7,7 @@ from datetime import datetime
 from manticore.ethereum import ManticoreEVM
 from manticore.utils import config as ManticoreConfig
 from manticore.ethereum.plugins import LoopDepthLimiter, FilterFunctions
-from instrumentator import Instrumentator
+from src.instrumentator import Instrumentator
 from shutil import copyfile
 
 
@@ -121,6 +121,7 @@ class VeriMan:
         self.tx_limit = config.verification.verisol.txs_bound
 
         self.use_manticore = config.verification.manticore.use
+        self.manticore_output_path = config.verification.manticore.output_path
         self.loop_limit = config.verification.manticore.loops
         self.procs = config.verification.manticore.procs
         self.user_initial_balance = config.verification.manticore.user_initial_balance
@@ -268,9 +269,9 @@ class VeriMan:
 
 
     def __create_output_path(self):
-        output_folder = 'output'
+        output_folder = self.manticore_output_path
         if not os.path.exists(output_folder):
-            os.mkdir(output_folder)
+            os.mkdir(output_folder) # FIXME?
 
         output_path = output_folder + '/' + datetime.now().strftime('%s') + '_' + self.contract_name
         os.mkdir(output_path)

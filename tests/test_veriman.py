@@ -2,7 +2,7 @@ import os
 import shutil
 import subprocess
 from unittest import TestCase
-from veriman import VeriMan
+from src.veriman import VeriMan
 from slither.slither import Slither
 
 
@@ -18,7 +18,7 @@ class TestVeriMan(TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        path_to_remove = os.path.dirname(os.path.abspath(__file__)) + '/output'
+        path_to_remove = cls.inorder_config.verification.manticore.output_path
         if os.path.isdir(path_to_remove):
             shutil.rmtree(path_to_remove)
 
@@ -28,6 +28,7 @@ class TestVeriMan(TestCase):
         test_config = VeriMan.parse_config('config_tests.json')
         user_config = VeriMan.parse_config('../config.json')
         test_config.verification.verisol.path = user_config.verification.verisol.path
+        test_config.verification.manticore.output_path = os.path.dirname(os.path.abspath(__file__)) + '/output'
         return test_config
 
 
