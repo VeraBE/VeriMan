@@ -5,13 +5,10 @@ import commentjson
 from types import SimpleNamespace as Namespace
 from datetime import datetime
 from manticore.ethereum import ManticoreEVM
-from manticore.utils import config as manticoreConfig
+from manticore.utils import config as ManticoreConfig
 from manticore.ethereum.plugins import LoopDepthLimiter, FilterFunctions
 from instrumentator import Instrumentator
 from shutil import copyfile
-
-
-# TODO refactor pre processing logic
 
 
 class VeriMan:
@@ -25,7 +22,6 @@ class VeriMan:
 
     def __init__(self):
         self.files_to_cleanup = set()
-        self.was_pre_processed = False
 
 
     def __del__(self):
@@ -54,16 +50,22 @@ class VeriMan:
 
             self.instrumentator.pre_process_contract(self.contract_path, self.contract_name)
 
-        self.was_pre_processed = True
-
         end_time = time.time()
 
         self.print('[-] Pre processing time:', end_time - start_time, 'seconds')
 
 
-    def analyze_contract(self, config):
-        if self.was_pre_processed:
+    def analyze_contract(self, config, **kargs):
+        reuse_pre_process = kargs.get('reuse_pre_process', False)
+
+        if reuse_pre_process:
             self.__read_config(config)
+
+            self.contract_path = self.original_contract_path.replace('.sol',
+                                                                     '_' + datetime.now().strftime('%s') + '.sol')
+            copyfile(self.original_contract_path, self.contract_path)
+            if not (self.instrument and not self.use_verisol):
+                self.files_to_cleanup.add(self.contract_path)
         else:
             self.pre_process_contract(config)
 
@@ -73,15 +75,14 @@ class VeriMan:
         if self.instrument:
             self.print('[-] Will instrument to check:', self.predicates)
 
-        self.contract_path = self.original_contract_path.replace('.sol', '_' +  datetime.now().strftime('%s') + '.sol')
-        copyfile(self.original_contract_path, self.contract_path)
-        if not (self.instrument and not self.use_verisol):
-            self.files_to_cleanup.add(self.contract_path)
-
         if self.instrument:
             start_time = time.time()
 
-            self.instrumentator.instrument(self.contract_path, self.predicates, self.instrument_for_echidna)
+            self.instrumentator.instrument(self.contract_path,
+                                           self.contract_name,
+                                           self.predicates,
+                                           for_echidna=self.instrument_for_echidna,
+                                           reuse_pre_process=True)
 
             end_time = time.time()
 
@@ -181,7 +182,7 @@ class VeriMan:
     def __run_manticore(self, trace):
         self.print('[.] Running Manticore')
 
-        consts = manticoreConfig.get_group('core')
+        consts = ManticoreConfig.get_group('core')
         consts.procs = self.procs
 
         output_path = self.__create_output_path()

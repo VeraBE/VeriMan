@@ -4,9 +4,6 @@ import parser
 import collections
 
 
-# TODO refactor pre processing logic
-
-
 class Instrumentator:
 
     def pre_process_contract(self, contract_path, contract_name):
@@ -34,8 +31,14 @@ class Instrumentator:
         self.contract_info = slither.get_contract_from_name(self.contract_name)
 
 
-    def instrument(self, contract_path, predicates, instrument_for_echidna):
-        self.contract_path = contract_path
+    def instrument(self, contract_path, contract_name, predicates, **kargs):
+        instrument_for_echidna = kargs.get('for_echidna', False)
+        reuse_pre_process = kargs.get('reuse_pre_process', False)
+
+        if reuse_pre_process:
+            self.contract_path = contract_path
+        else:
+            self.pre_process_contract(contract_path, contract_name)
 
         with open(self.contract_path) as contract_file:
             self.contract_lines = contract_file.readlines()
@@ -171,7 +174,6 @@ class Instrumentator:
             functions_to_instrument.add(constructor)
 
         # We can thought of all no-state-changing functions as equivalent:
-        # TODO create new one if necessary?
         for func in self.contract_info.functions:
             if self.__should_be_instrumented(func) and not func in functions_to_instrument:
                 functions_to_instrument.add(func)
