@@ -1,5 +1,7 @@
 # VeriMan
 
+> Analysis tool for Solidity smart contracts. Prototype.
+
 With VeriMan you can define temporal properties using your contract's variables, and Solidity's numeric and boolean operations. Then, the tool instruments the contract to find a trace that falsifies at least one of the properties or prove that they hold. You can then check the instrumented contract against any tool that tries to make asserts fail, like Mythril, or any tool that also attempts to prove they hold.
 
 For example, given the following contract:
@@ -58,3 +60,11 @@ Echidna is supported as well, if you set `for_echidna` to `true` in your configu
 
 * Copy `config_example.json` into `config.json` and update values, you can define the properties there.
 * `python client.py`
+
+## Contributing
+
+Contributions are welcome through PRs and OpenZeppelin's forum is a good place for questions and discussion in general, specially VeriMan's [introduction post](https://forum.openzeppelin.com/t/veriman-a-prototype/1446).
+
+## License
+
+[GPL-3.0-or-later](LICENSE) © 2019 Vera Bogdanich Espina
