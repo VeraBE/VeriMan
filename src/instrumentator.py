@@ -154,16 +154,14 @@ class Instrumentator:
         for variable_name in predicate.related_vars:
 
             if self.__is_solidity_property(variable_name):
-                functions_to_instrument = set(self.contract_info.functions_entry_points)
+                functions_to_instrument.update(self.__filter_to_instrument(self.contract_info.functions))
             else:
                 variable = self.contract_info.get_state_variable_from_name(variable_name)
                 functions_writing_variable = self.contract_info.get_functions_writing_to_variable(variable)
 
-                for func in functions_writing_variable:
-                    if self.__should_be_instrumented(func):
-                        functions_to_instrument.add(func)
+                functions_to_instrument.update(self.__filter_to_instrument(functions_writing_variable))
 
-                functions_to_instrument = functions_to_instrument.union(self.__get_public_callers(functions_writing_variable))
+                functions_to_instrument.update(list(self.__get_public_callers(functions_writing_variable)))
 
             if len(functions_to_instrument) == len(self.contract_info.functions_entry_points):
                 break
@@ -180,6 +178,10 @@ class Instrumentator:
                 break
 
         return functions_to_instrument
+
+
+    def __filter_to_instrument(self, functions):
+        return list(filter(lambda func: self.__should_be_instrumented(func), functions))
 
 
     def __is_solidity_property(self, variable_name):

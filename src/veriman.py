@@ -64,7 +64,7 @@ class VeriMan:
             self.contract_path = self.original_contract_path.replace('.sol',
                                                                      '_' + datetime.now().strftime('%s') + '.sol')
             copyfile(self.original_contract_path, self.contract_path)
-            if not (self.instrument and not self.use_verisol):
+            if self.__contract_instrumented_should_be_removed():
                 self.files_to_cleanup.add(self.contract_path)
         else:
             self.pre_process_contract(config)
@@ -149,7 +149,8 @@ class VeriMan:
         os.rename(merged_path, new_contract_path)
         self.contract_path = new_contract_path
 
-        self.files_to_cleanup.add(self.contract_path)
+        if self.__contract_instrumented_should_be_removed():
+            self.files_to_cleanup.add(self.contract_path)
 
 
     def __run_verisol(self):
@@ -280,3 +281,7 @@ class VeriMan:
         os.mkdir(output_path)
 
         return output_path
+
+
+    def __contract_instrumented_should_be_removed(self):
+        return not (self.instrument and not self.use_verisol)
