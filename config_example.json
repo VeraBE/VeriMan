@@ -20,7 +20,7 @@
   "verification": {
     "verisol": {
       "use": true,
-      "path": "/home/user/verisol/Binaries/VeriSol.dll", // Or your VeriSol command if you installed it globally
+      "command": "dotnet /home/user/verisol/Binaries/VeriSol.dll", // Or your VeriSol command if you installed it globally
       "txs_bound": 5 // Max counterexample length
     },
     "manticore": {

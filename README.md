@@ -54,7 +54,7 @@ Echidna is supported as well, if you set `for_echidna` to `true` in your configu
 * Python 3
 * `npm install -g sol-merger`
 * `pip install -r requirements.txt`
-* [VeriSol](https://github.com/microsoft/verisol/tree/0fd7f14956a24ad2b931a9a441f012d53daab609) if you want to use the verification feature.
+* [VeriSol](https://github.com/microsoft/verisol/tree/e9184b3aadc35df91271e91dbfec05e9c560a73d) if you want to use the verification feature.
 
 ## Usage
 

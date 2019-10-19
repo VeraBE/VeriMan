@@ -117,7 +117,7 @@ class VeriMan:
         self.predicates = config.instrumentation.predicates
 
         self.use_verisol = config.verification.verisol.use
-        self.verisol_path = config.verification.verisol.path
+        self.verisol_command = config.verification.verisol.command
         self.tx_limit = config.verification.verisol.txs_bound
 
         self.use_manticore = config.verification.manticore.use
@@ -134,13 +134,19 @@ class VeriMan:
 
 
     def __merge_contract(self):
-        # Solidity and VeriSol don't support imports, plus sol-merger removes comments:
+        # Solidity and VeriSol don't support imports, plus sol-merger removes comments
+
         solmerger_process = subprocess.Popen([f'sol-merger {self.contract_path}'], stdout=subprocess.PIPE, shell=True)
         solmerger_process.wait()
         solmerger_process.stdout.close()
 
+        merged_path = self.contract_path.replace('.sol', '_merged.sol')
+
+        if not os.path.isfile(merged_path):
+            raise Exception('Contract merging failed, check imports')
+
         new_contract_path = self.contract_path.replace('.sol', '_VERIMAN_' + datetime.now().strftime('%s') + '.sol')
-        os.rename(self.contract_path.replace('.sol', '_merged.sol'), new_contract_path)
+        os.rename(merged_path, new_contract_path)
         self.contract_path = new_contract_path
 
         self.files_to_cleanup.add(self.contract_path)
@@ -149,7 +155,7 @@ class VeriMan:
     def __run_verisol(self):
         self.print('[.] Running VeriSol')
 
-        verisol_command = f'dotnet {self.verisol_path} {self.contract_path} {self.contract_name} /tryProof /tryRefutation:{str(self.tx_limit)} /printTransactionSequence'
+        verisol_command = f'{self.verisol_command} {self.contract_path} {self.contract_name} /txBound:{str(self.tx_limit)}'
         verisol_process = subprocess.Popen([verisol_command], stdout=subprocess.PIPE, shell=True)
         verisol_process.wait()
         verisol_output = str(verisol_process.stdout.read(), 'utf-8')
@@ -157,13 +163,11 @@ class VeriMan:
 
         proof_found = 'Proof found' in verisol_output
         counterexample = []
+        self.files_to_cleanup.update(['__SolToBoogieTest_out.bpl', 'boogie.txt', 'corral.txt', 'corral_counterex.txt', 'corral_out.bpl', 'corral_out_trace.txt', 'error.bpl'])
 
         if proof_found:
-            self.files_to_cleanup.update(['__SolToBoogieTest_out.bpl', 'boogie.txt'])
             self.print('[!] Contract proven, asserts cannot fail')
         elif 'Found a counterexample' in verisol_output:
-            self.files_to_cleanup.update(['__SolToBoogieTest_out.bpl', 'boogie.txt', 'corral.txt', 'corral_counterex.txt', 'corral_out.bpl', 'corral_out_trace.txt'])
-
             trace_parts = verisol_output.split(self.contract_name + '::')
             del trace_parts[0]
 
@@ -172,7 +176,6 @@ class VeriMan:
                 counterexample.append(call_found)
             self.print('[!] Counterexample found:', counterexample)
         elif 'Did not find a proof' in verisol_output:
-            self.files_to_cleanup.update(['__SolToBoogieTest_out.bpl', 'boogie.txt', 'corral.txt'])
             self.print('[!] Contract cannot be proven, but a counterexample was not found, successful up to', str(self.tx_limit), 'transactions')
         else:
             raise Exception('Error reported by VeriSol:\n' + verisol_output)

@@ -27,7 +27,7 @@ class TestVeriMan(TestCase):
     def get_test_config():
         test_config = VeriMan.parse_config('config_tests.json')
         user_config = VeriMan.parse_config('../config.json')
-        test_config.verification.verisol.path = user_config.verification.verisol.path
+        test_config.verification.verisol.command = user_config.verification.verisol.command
         test_config.verification.manticore.output_path = os.path.dirname(os.path.abspath(__file__)) + '/output'
         return test_config
 

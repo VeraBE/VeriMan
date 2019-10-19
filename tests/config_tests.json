@@ -16,7 +16,7 @@
   "verification": {
     "verisol": {
       "use": true,
-      "path": "", // Or your VeriSol command if you installed it globally
+      "command": "", // Or your VeriSol command if you installed it globally
       "txs_bound": 5 // Max counterexample length
     },
     "manticore": {
