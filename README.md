@@ -67,4 +67,4 @@ Contributions are welcome through PRs and OpenZeppelin's forum is a good place f
 
 ## License
 
-[GPL-3.0-or-later](LICENSE) © 2019 Vera Bogdanich Espina
+[GPL-3.0-or-later](LICENSE.txt) © 2019 Vera Bogdanich Espina
