@@ -6,11 +6,12 @@ import collections
 
 class Instrumentator:
 
-    def pre_process_contract(self, contract_path, contract_name):
+    def pre_process_contract(self, contract_path, contract_name, **kargs):
         self.contract_path = contract_path
         self.contract_name = contract_name
+        solc_command = kargs.get('solc_command', 'solc')
 
-        slither = Slither(self.contract_path)
+        slither = Slither(self.contract_path, solc=solc_command)
         self.contract_info = slither.get_contract_from_name(self.contract_name)
         if self.contract_info is None:
             raise Exception('Check config file for contract name')
@@ -27,18 +28,19 @@ class Instrumentator:
         with open(self.contract_path, 'w') as contract_file:
             contract_file.writelines(self.contract_lines)
 
-        slither = Slither(self.contract_path)
+        slither = Slither(self.contract_path, solc=solc_command)
         self.contract_info = slither.get_contract_from_name(self.contract_name)
 
 
     def instrument(self, contract_path, contract_name, predicates, **kargs):
         instrument_for_echidna = kargs.get('for_echidna', False)
         reuse_pre_process = kargs.get('reuse_pre_process', False)
+        solc_command = kargs.get('solc_command', 'solc')
 
         if reuse_pre_process:
             self.contract_path = contract_path
         else:
-            self.pre_process_contract(contract_path, contract_name)
+            self.pre_process_contract(contract_path, contract_name, solc_command=solc_command)
 
         with open(self.contract_path) as contract_file:
             self.contract_lines = contract_file.readlines()

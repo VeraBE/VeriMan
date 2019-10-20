@@ -48,7 +48,7 @@ class VeriMan:
         if self.instrument:
             self.instrumentator = Instrumentator()
 
-            self.instrumentator.pre_process_contract(self.contract_path, self.contract_name)
+            self.instrumentator.pre_process_contract(self.contract_path, self.contract_name, solc_command=self.solc_command)
 
         end_time = time.time()
 
@@ -82,6 +82,7 @@ class VeriMan:
                                            self.contract_name,
                                            self.predicates,
                                            for_echidna=self.instrument_for_echidna,
+                                           solc_command=self.solc_command,
                                            reuse_pre_process=True)
 
             end_time = time.time()
@@ -114,6 +115,7 @@ class VeriMan:
 
         self.instrument = config.instrumentation.instrument
         self.instrument_for_echidna = config.instrumentation.for_echidna
+        self.solc_command = config.instrumentation.solc_command
         self.predicates = config.instrumentation.predicates
 
         self.use_verisol = config.verification.verisol.use

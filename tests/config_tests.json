@@ -11,6 +11,7 @@
   "instrumentation": {
     "instrument": true,
     "for_echidna": false,
+    "solc_command": "",
     "predicates": []
   },
   "verification": {
