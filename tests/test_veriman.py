@@ -53,6 +53,21 @@ class TestVeriMan(TestCase):
         self.assertEqual(solc_process.returncode, 0)
 
 
+    def check_functions_with_asserts(self, veriman, expected):
+        slither = Slither(veriman.contract_path)
+        contract_info = slither.get_contract_from_name(veriman.contract_name)
+
+        expected_functions = set(list(expected))
+
+        found_functions = list(filter(lambda func: next(filter(lambda call: call.name == 'assert(bool)',
+                                                               func.solidity_calls), None) is not None,
+                                      contract_info.functions_declared))
+
+        found_functions_names = list(map(lambda func: func.name, found_functions))
+
+        self.assertEqual(expected_functions, set(found_functions_names))
+
+
     def test_integer_comparison_false(self):
         self.inorder_config.instrumentation.predicates = ['num_calls > 0']
         proof_found, verisol_counterexample = self.inorder_veriman.analyze_contract(self.inorder_config,
@@ -167,6 +182,8 @@ class TestVeriMan(TestCase):
         for invariant in echidna_invariants:
             self.assertEqual(invariant.return_type[0].name, 'bool')
 
+        self.check_functions_with_asserts(self.inorder_veriman, [])
+
         os.remove(self.inorder_veriman.contract_path)
 
 
@@ -196,13 +213,15 @@ class TestVeriMan(TestCase):
         slither = Slither(veriman.contract_path)
         contract_info = slither.get_contract_from_name(inheritance_config.contract.name)
 
-        expected_functions = set(list(['aFunction',
-                                       'toBeOverwritten',
-                                       'bFunction',
-                                       'withTheSameName',
-                                       'callsC',
-                                       'dFunction',
-                                       'constructor']))
+        expected_functions_array = ['aFunction',
+                                     'toBeOverwritten',
+                                     'bFunction',
+                                     'withTheSameName',
+                                     'callsC',
+                                     'dFunction',
+                                     'constructor']
+
+        expected_functions = set(list(expected_functions_array))
 
         found_functions = list(map(lambda func: func.name, contract_info.functions_declared))
 
@@ -210,5 +229,28 @@ class TestVeriMan(TestCase):
         self.assertEqual(found_functions.count('toBeOverwritten'), 1)
 
         self.assertEqual(expected_functions, set(found_functions))
+
+        self.check_functions_with_asserts(veriman, expected_functions_array)
+
+        os.remove(veriman.contract_path)
+
+
+    def test_mappings(self):
+        mapping_config = TestVeriMan.get_test_config()
+        mapping_config.contract.path = os.path.dirname(os.path.abspath(__file__)) + '/Mappings.sol'
+        mapping_config.instrumentation.predicates = ['aMapping[anInt] > 3']
+        mapping_config.verification.verisol.use = False
+
+        veriman = VeriMan()
+        proof_found, verisol_counterexample = veriman.analyze_contract(mapping_config)
+
+        self.check_contract_compiles(veriman.contract_path)
+
+        self.check_functions_with_asserts(veriman, ['setMapping',
+                                                     'setAnInt',
+                                                     # Because it also instruments a random function, and it choses it from a list in alphabetic order:
+                                                     # FIXME improve way to check read(int) is not instrumented:
+                                                     'anotherFunction',
+                                                     'constructor'])
 
         os.remove(veriman.contract_path)
