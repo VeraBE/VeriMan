@@ -53,14 +53,14 @@ class TestVeriMan(TestCase):
         self.assertEqual(solc_process.returncode, 0)
 
 
-    def check_functions_with_asserts(self, veriman, expected):
+    def check_functions_with_modifier(self, veriman, expected):
         slither = Slither(veriman.contract_path)
         contract_info = slither.get_contract_from_name(veriman.contract_name)
 
         expected_functions = set(list(expected))
 
-        found_functions = list(filter(lambda func: next(filter(lambda call: call.name == 'assert(bool)',
-                                                               func.solidity_calls), None) is not None,
+        found_functions = list(filter(lambda func: next(filter(lambda modifier: modifier.name.startswith('VERIMAN'),
+                                                               func.modifiers), None) is not None,
                                       contract_info.functions_declared))
 
         found_functions_names = list(map(lambda func: func.name, found_functions))
@@ -182,7 +182,7 @@ class TestVeriMan(TestCase):
         for invariant in echidna_invariants:
             self.assertEqual(invariant.return_type[0].name, 'bool')
 
-        self.check_functions_with_asserts(self.inorder_veriman, [])
+        self.check_functions_with_modifier(self.inorder_veriman, [])
 
         os.remove(self.inorder_veriman.contract_path)
 
@@ -230,7 +230,7 @@ class TestVeriMan(TestCase):
 
         self.assertEqual(expected_functions, set(found_functions))
 
-        self.check_functions_with_asserts(veriman, expected_functions_array)
+        self.check_functions_with_modifier(veriman, expected_functions_array)
 
         os.remove(veriman.contract_path)
 
@@ -246,7 +246,7 @@ class TestVeriMan(TestCase):
 
         self.check_contract_compiles(veriman.contract_path)
 
-        self.check_functions_with_asserts(veriman, ['setMapping',
+        self.check_functions_with_modifier(veriman, ['setMapping',
                                                      'setAnInt',
                                                      # Because it also instruments a random function, and it choses it from a list in alphabetic order:
                                                      # FIXME improve way to check read(int) is not instrumented:

@@ -52,14 +52,20 @@ class Instrumentator:
 
             functions_to_instrument = self.__get_functions_to_instrument(predicate)
 
-            self.__instrument_new_variables(predicate, functions_to_instrument, instrument_for_echidna)
+            # TODO refactor Echidna handling:
+            modifier_body = self.__instrument_new_variables(predicate, '_;\n', functions_to_instrument, instrument_for_echidna)
 
             if instrument_for_echidna:
                 echidna_function = f'function echidna_VERIMAN_predicate_no_{str(index + 1)}() public returns(bool){{\nreturn {predicate.solidity_repr};\n}}'
                 self.__insert_in_contract(echidna_function)
             else:
-                assert_string = f'assert({predicate.solidity_repr}); // VERIMAN ASSERT FOR PREDICATE NO. {index + 1}'
-                self.__insert_at_functions_end(functions_to_instrument, assert_string)
+                assert_string = f'assert({predicate.solidity_repr});'
+                modifier_body = modifier_body + assert_string
+                modifier_name = f'VERIMAN_predicate_{str(index + 1)}'
+                modifier = f'modifier VERIMAN_predicate_{str(index + 1)}(){{\n{modifier_body}\n}}'
+
+                self.__insert_in_contract(modifier)
+                self.__insert_as_modifier(functions_to_instrument, modifier_name)
 
         with open(self.contract_path, 'w') as contract_file:
             contract_file.writelines(self.contract_lines)
@@ -122,7 +128,9 @@ class Instrumentator:
                 self.__insert_in_contract('// VERIMAN ADDED INHERITED FUNCTION:\n' + new_function)
 
 
-    def __instrument_new_variables(self, predicate, functions_to_instrument, instrument_for_echidna):
+    def __instrument_new_variables(self, predicate, modifier_body, functions_to_instrument, instrument_for_echidna):
+        new_modifier_body = modifier_body
+
         if predicate.operator == parser.PREVIOUSLY:
             if instrument_for_echidna:
                 initialization_code = f'bool {predicate.solidity_vars[0]};'
@@ -131,23 +139,24 @@ class Instrumentator:
                 self.__insert_in_contract(initialization_code)
                 self.__insert_at_functions_beginning(functions_to_instrument, update_code)
             else:
-                initialization_code = f'bool {predicate.solidity_vars[0]}={predicate.values[0].solidity_repr};'
-
-                self.__insert_at_functions_beginning(functions_to_instrument, initialization_code)
+                initialization_code = f'bool {predicate.solidity_vars[0]}={predicate.values[0].solidity_repr};\n'
+                new_modifier_body = initialization_code + modifier_body
         elif predicate.operator == parser.SINCE:
             q = predicate.solidity_vars[0]
             p_since_q = predicate.solidity_vars[1]
             q_repr = predicate.values[1].solidity_repr
             p_repr = predicate.values[0].solidity_repr
             initialization_code = f'bool {q}=false;\nbool {p_since_q}=true;'
-            update_code = '''if({q}){{\n{p_since_q}={p_repr}&&{p_since_q};\n}}\n{q}={q_repr}||{q};'''\
+            update_code = '''if({q}){{\n{p_since_q}={p_repr}&&{p_since_q};\n}}\n{q}={q_repr}||{q};\n'''\
                 .format(q=q, p_since_q=p_since_q, q_repr=q_repr, p_repr=p_repr)
 
             self.__insert_in_contract(initialization_code)
-            self.__insert_at_functions_end(functions_to_instrument, update_code)
+            new_modifier_body = modifier_body + update_code
 
         for term in predicate.values:
-            self.__instrument_new_variables(term, functions_to_instrument, instrument_for_echidna)
+            new_modifier_body = self.__instrument_new_variables(term, new_modifier_body, functions_to_instrument, instrument_for_echidna)
+
+        return new_modifier_body
 
 
     def __get_functions_to_instrument(self, predicate):
@@ -233,49 +242,14 @@ class Instrumentator:
                 break
 
 
-    def __insert_at_functions_end(self, functions, to_insert):
+    def __insert_as_modifier(self, functions, modifier_name):
         for func in functions:
             func_line_numbers = func.source_mapping['lines']
-            first_line_number = func_line_numbers[0]
-            last_line_number = func_line_numbers[-1]
-            done = False
-            open_blocks = 0
+            first_line_number = func_line_numbers[0] - 1
+            first_line = self.contract_lines[first_line_number]
 
-            for line_number in range(first_line_number - 1, last_line_number):
-                line = self.contract_lines[line_number]
+            new_first_line = first_line.replace(' returns', ' ' + modifier_name + ' returns', 1)
+            if len(new_first_line) == len(first_line):
+                new_first_line = first_line.replace('{', ' ' + modifier_name + ' {', 1)
 
-                open_blocks = open_blocks + line.count('{') - line.count('}')
-
-                if 'return ' in line:
-                    if not 'return VERIMAN_' in line:
-                        store_return_values = ''
-                        return_variables = ''
-                        for type in func.return_type:
-                            new_var_for_return_value = Parser.create_variable_name('return_value')
-                            store_return_values += f'{type} {new_var_for_return_value},'
-                            return_variables += new_var_for_return_value + ','
-                        store_return_values = store_return_values.rsplit(',', 1)[0]
-                        return_variables = return_variables.rsplit(',', 1)[0]
-
-                        if len(func.return_type) > 1:
-                            store_return_values = '(' + store_return_values + ')'
-                            return_variables = '(' + return_variables + ')'
-
-                        return_value = line.split('return ', 1)[1].split(';', 1)[0]
-
-                        assignment_line = f'{store_return_values}={return_value};'
-                        new_return_line = f'return {return_variables}'
-
-                        self.contract_lines[line_number] = line.replace(f'return {return_value}',
-                                                                        f'{assignment_line}\n{to_insert}\n{new_return_line}') # FIXME
-                    else:
-                        self.contract_lines[line_number] = line.replace('return ', f'{to_insert}\nreturn ') # FIXME
-
-                    done = done or open_blocks <= 1
-
-                if 'return;' in line: # FIXME
-                    self.contract_lines[line_number] = line.replace('return;', f'{to_insert}\nreturn;') # FIXME
-                    done = done or open_blocks <= 1
-
-                if open_blocks == 0 and not done: # FIXME
-                    self.contract_lines[line_number] =  (to_insert + '\n}').join(line.rsplit('}', 1))
+            self.contract_lines[first_line_number] = new_first_line
