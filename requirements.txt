@@ -17,7 +17,7 @@ natsort==6.0.0
 networkx==2.3
 ply==3.11
 prettytable==0.7.2
-psutil==5.6.3
+psutil==5.6.6
 pydot==1.4.1
 pyevmasm==0.2.0
 pyparsing==2.4.2
