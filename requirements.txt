@@ -22,7 +22,7 @@ pydot==1.4.1
 pyevmasm==0.2.0
 pyparsing==2.4.2
 pysha3==1.0.2
-PyYAML==5.1.2
+PyYAML==5.4
 rlp==1.1.0
 six==1.12.0
 slither-analyzer==0.6.6
